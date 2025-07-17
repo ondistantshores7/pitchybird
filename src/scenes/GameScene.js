@@ -25,6 +25,7 @@ export class GameScene extends Phaser.Scene {
 
         // Bird
         this.bird = new Bird(this, 100, this.sys.game.config.height / 2);
+        this.add.existing(this.bird);
         this.bird.createAnimations();
 
         // Audio
@@ -138,7 +139,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     spawnObstacle() {
-        const obstacle = new Obstacle(
+        const obstacle = new Obstacle(this,
             this,
             this.sys.game.config.width + 100,
             0,
