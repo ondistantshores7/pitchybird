@@ -3,12 +3,7 @@ const link = document.createElement('link');
 link.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
 link.rel = 'stylesheet';
 document.head.appendChild(link);
-// Conceptual imports - these would be active if files were separate
-// import Background from './Background.js'; // GameScene uses Background
-// import Bird from './Bird.js';         // GameScene uses Bird
-// import Obstacle from './Obstacle.js';   // GameScene uses Obstacle
-// Class definitions will follow.
-// Order: Helper classes first (Background, Bird, Obstacle), then Scenes (StartScreen, GameScene)
+
 class Background {
     constructor(scene) {
         this.scene = scene;
@@ -17,32 +12,25 @@ class Background {
     createBackgrounds() {
         const gameWidth = this.scene.sys.game.config.width;
         const gameHeight = this.scene.sys.game.config.height;
-        const barHeight = gameHeight / 8; // 8 equal-height bars for the octave
-        // More vibrant colors with less pastel feel
+        const barHeight = gameHeight / 8;
         const vibrantColors = [
-            0xFF5555, // More Red (High Do)
-            0xFFBF80, // Brighter Orange (Re)
-            0xFFEF80, // Brighter Yellow (Mi)
-            0x80FF97, // Brighter Green (Fa)
-            0x80C4FF, // Brighter Blue (Sol)
-            0xBB80FF, // Brighter Purple (La)
-            0xFF80D5, // Brighter Pink (Ti)
-            0xFF5555 // More Red (Low Do)
+            0xFF5555, 0xFFBF80, 0xFFEF80, 0x80FF97,
+            0x80C4FF, 0xBB80FF, 0xFF80D5, 0xFF5555
         ];
-        // Use the vibrant colors
-        const colors = vibrantColors;
-        const solfegeNames = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
+        this.solfegeNames = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
+        this.pitchNameLabels = []; // To store the text objects for pitch names
+        this.backgroundTexts = []; // To store all text objects for easy update
         for (let i = 0; i < 8; i++) {
             const y = gameHeight - (i + 1) * barHeight;
-            // Create rectangle with more transparent color
-            const bar = this.scene.add.rectangle(0, y, gameWidth, barHeight, colors[i]);
+            const bar = this.scene.add.rectangle(0, y, gameWidth, barHeight, vibrantColors[i]);
             bar.setOrigin(0, 0);
-            bar.setAlpha(0.7); // Slightly more transparent to balance the increased vibrancy
-            // Create text with Arial font - centered vertically in each bar
-            const text = this.scene.add.text(10, y + barHeight / 2, solfegeNames[i], {
+            bar.setAlpha(0.7);
+            bar.setDepth(0);
+            bar.setScrollFactor(0);
+            // Initially display Solfege names
+            const text = this.scene.add.text(10, y + barHeight / 2, this.solfegeNames[i], {
                 fontSize: '30px',
                 fontFamily: '"VT323", monospace',
-                fontStyle: 'normal',
                 fill: '#FFFFFF',
                 align: 'left',
                 shadow: {
@@ -55,18 +43,81 @@ class Background {
                 }
             });
             text.setOrigin(0, 0.5);
+            text.setDepth(1);
+            text.setScrollFactor(0);
+            this.backgroundTexts.push(text);
+        }
+    }
+    updateTextDisplay(displayMode, pitchNames = []) {
+        const gameHeight = this.scene.sys.game.config.height;
+        const barHeight = gameHeight / 8;
+        this.backgroundTexts.forEach(text => text.destroy());
+        this.backgroundTexts = [];
+        const namesToDisplay = displayMode === 'Pitch' ? pitchNames : this.solfegeNames;
+        for (let i = 0; i < 8; i++) {
+            const y = gameHeight - (i + 1) * barHeight;
+            const name = namesToDisplay[i] || (displayMode === 'Pitch' ? 'N/A' : this.solfegeNames[i]);
+            const text = this.scene.add.text(10, y + barHeight / 2, name, {
+                fontSize: '30px',
+                fontFamily: '"VT323", monospace',
+                fill: '#FFFFFF',
+                align: 'left',
+                shadow: {
+                    offsetX: 1,
+                    offsetY: 1,
+                    color: '#39FF14',
+                    blur: 2,
+                    stroke: true,
+                    fill: true
+                }
+            });
+            text.setOrigin(0, 0.5);
+            text.setDepth(1);
+            text.setScrollFactor(0);
+            this.backgroundTexts.push(text);
         }
     }
 }
+
 class Bird extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y) {
-        super(scene, x, y, 'bird1');
-
-        scene.add.existing(this);
-        scene.physics.add.existing(this);
-        this.setScale(0.45); // Reduced by 10% from 0.5
+        super(scene, x, y, 'bird1'); // 'bird1' should be preloaded
+        scene.add.existing(this); // Add to display list
+        scene.physics.add.existing(this); // Add to physics system
+        console.log('[Bird Constructor] After scene.physics.add.existing(this), this.body is:', this.body);
+        if (!this.body) {
+            console.error("Bird body not created after scene.physics.add.existing! Attempting fallback.");
+            // This should not happen if physics is enabled for the scene.
+            // As a fallback, try to enable physics directly if body is missing.
+            scene.physics.world.enableBody(this, Phaser.Physics.Arcade.DYNAMIC_BODY);
+            console.log('[Bird Constructor] After fallback scene.physics.world.enableBody, this.body is:', this.body);
+        }
+        this.setScale(0.45); // Scale first
         this.setCollideWorldBounds(true);
-        this.body.setAllowGravity(true); // Enable gravity by default
+        // Set body size *before* scaling, then scale the sprite.
+        // The physics body will scale with the sprite.
+        if (this.body) {
+            // Adjusted to be a bit smaller and more centered.
+            // The original texture is 128x128. A 0.5 scale factor makes it 64x64.
+            // We want the body to be slightly smaller than the visual sprite.
+            // Let's try 50% of the *original* texture's dimensions for the body.
+            this.body.setSize(this.texture.getSourceImage().width * 0.5, this.texture.getSourceImage().height * 0.5);
+            // Offset to center this smaller body within the original texture space.
+            // (Original Width - Body Width) / 2
+            const offsetX = (this.texture.getSourceImage().width - (this.texture.getSourceImage().width * 0.5)) / 2;
+            const offsetY = (this.texture.getSourceImage().height - (this.texture.getSourceImage().height * 0.5)) / 2;
+            this.body.setOffset(offsetX, offsetY);
+        } else {
+            console.error("Bird body is null during setSize/setOffset!");
+        }
+        // The setScale(0.45) is already present at line 62, which scales the sprite and its body.
+        // No need to call setScale again here unless we want a different final scale.
+        // Let's ensure gravity is enabled after all body configurations.
+        if (this.body) { // Ensure body exists before setting gravity
+            this.body.setAllowGravity(true);
+        }
+        this.setDepth(10);
+        this.setScrollFactor(0);
         this.createAnimations();
         this.play('flap');
     }
@@ -86,176 +137,109 @@ class Bird extends Phaser.Physics.Arcade.Sprite {
             repeat: -1
         });
     }
-    // flap() method removed - control is via pitch now
 }
-class Obstacle extends Phaser.GameObjects.Container {
+class Obstacle extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y, width, height, speed, gameScene, fromTop = null) {
-        super(scene, x, 0); // Initial y position will be set by configurePipe
+        const initialFromTop = fromTop !== null ?
+            fromTop :
+            (gameScene.lastObstacleFromTop === null ?
+                Math.random() > 0.5 :
+                !gameScene.lastObstacleFromTop
+            );
+        const textureKey = initialFromTop ? 'cloud' : 'pipe'; // This line is okay, textureKey is decided
+
+        // Determine initialY based on whether it's a top or bottom obstacle
+        const initialY = initialFromTop ? 0 : gameScene.sys.game.config.height;
+        // If it's a pipe, fromTop must be false. If it's a cloud, fromTop must be true.
+        // This simplifies the logic as initialFromTop is now directly tied to the chosen texture.
+        const finalFromTop = initialFromTop; // Use the passed initialFromTop directly
+        super(scene, x, initialY, textureKey); // textureKey is already determined
+        scene.add.existing(this);
+
+        // ← DYNAMIC body
+        scene.physics.add.existing(this);
+        this.body.setImmovable(true);
+        this.body.allowGravity = false;
+        // Obstacle movement will be handled manually in GameScene's update loop based on speed * deltaTime
+        // So, we don't set velocityX here, but store the speed.
         this.scene = scene;
         this.obstacleWidth = width;
-        this.obstacleHeight = height;
-        this.speed = speed;
+        this.speed = speed; // This is now pixels per second
         this.gameHeight = scene.sys.game.config.height;
         this.gameScene = gameScene;
-        if (fromTop !== null) {
-            this.fromTop = fromTop;
-        } else {
-            if (this.gameScene.lastObstacleFromTop === null) {
-                this.fromTop = Math.random() > 0.5;
-            } else {
-                this.fromTop = !this.gameScene.lastObstacleFromTop;
-            }
-        }
-        this.gameScene.lastObstacleFromTop = this.fromTop;
-        // Create either cloud graphics or tree image
-        if (this.fromTop) {
-            this.obstacleSprite = this.scene.add.image(0, 0, 'cloud');
-            this.add(this.obstacleSprite); // Add image to container
-        } else {
-            this.obstacleSprite = scene.add.image(0, 0, 'pipe');
-            this.add(this.obstacleSprite); // Add image to container
-        }
-        scene.add.existing(this);
-        scene.physics.add.existing(this, true); // true = static body for the container
-        // Configure appearance and physics body
-        this.configurePipe(this.fromTop, this.obstacleHeight);
-        this.startX = x;
-        // Set the size of the container's physics body
-        this.body.setSize(this.obstacleWidth, this.obstacleHeight);
-    }
-    createCloudSprite(width, height) {
-        const cloudImage = this.scene.add.image(0, 0, 'cloud');
-        // The image will be scaled in configurePipe
-        return cloudImage;
+        this.fromTop = finalFromTop; // Use the corrected fromTop
+        gameScene.lastObstacleFromTop = this.fromTop;
+        this.setDepth(5);
+        this.configurePipe(this.fromTop, height);
     }
     configurePipe(fromTop, height) {
-        this.fromTop = fromTop;
-        this.obstacleHeight = height;
+        this.fromTop = fromTop; // Ensure this.fromTop is set
+        const key = this.fromTop ? 'cloud' : 'pipe';
+        this.setTexture(key);
+        const img = this.texture.getSourceImage();
+        let scaleX = this.obstacleWidth / img.width;
+        let scaleY = height / img.height;
+        if (key === 'cloud') scaleX *= 4.5;
+        this.setScale(scaleX, scaleY);
+        // The physics body should now correctly match the scaled sprite
+        this.body.setSize(this.displayWidth, this.displayHeight, false); // Set body dimensions to match scaled sprite
+        this.body.setOffset(0, 0); // Key change: Offset is (0,0) relative to sprite's implicit top-left
         if (this.fromTop) { // Cloud
-            // Cloud image
-            const textureWidthCloud = this.obstacleSprite.texture.getSourceImage().width;
-            const textureHeightCloud = this.obstacleSprite.texture.getSourceImage().height;
-            const scaleX = this.obstacleWidth / textureWidthCloud;
-            // Preserve aspect ratio: Calculate scaleY based on scaleX and original aspect ratio
-            const scaleY = scaleX * (textureWidthCloud / textureHeightCloud) * (150 / 350) * 3; // (original aspect ratio of image) * 3 for increased size
-            this.obstacleSprite.setScale(scaleX, scaleY);
-            this.obstacleSprite.setOrigin(0.5, 0); // Origin at the top center for the cloud image
-            this.y = 0; // Position container at the top
-            this.body.setOffset(-this.obstacleWidth / 2, 0); // Body offset for top origin
-            this.obstacleHeight = this.obstacleSprite.displayHeight; // Update obstacleHeight to match new visual size
-        } else { // Tree
-            const textureWidth = this.obstacleSprite.texture.getSourceImage().width;
-            const textureHeight = this.obstacleSprite.texture.getSourceImage().height;
-            this.obstacleSprite.setScale(this.obstacleWidth / textureWidth, this.obstacleHeight / textureHeight);
-            this.obstacleSprite.setOrigin(0.5, 1); // Origin at the bottom center for the image
-            this.y = this.gameHeight;
-            // Adjust the physics body offset for bottom origin
-            // The image is centered horizontally in the container (x=0)
-            // The image's bottom is at y=0 in the container
-            this.body.setOffset(-this.obstacleWidth / 2, -this.obstacleHeight);
+            this.setOrigin(0.5, 0); // Origin is top-center
+            this.y = 0; // Position sprite's origin at the top of the screen
+        } else { // Pipe
+            this.setOrigin(0.5, 1); // Origin is bottom-center
+            this.y = this.gameHeight; // Position sprite's origin at the bottom of the screen
         }
-        // Set the size of the physics body for the container
-        this.body.setSize(this.obstacleWidth, this.obstacleHeight); // obstacleHeight is now updated for clouds
-        this.body.enable = true; // Ensure body is enabled
-        // For static bodies, setting container x/y and body offset/size is usually enough.
-        // The physics system will use the container's transform.
-        // If issues persist, we might need to manually set body.position.x/y
-        // but let's try without explicit reset first.
-    }
-    update() {
-        // Move obstacle from right to left
-        this.x -= this.speed;
-        // For static bodies, updating the container's x position should be sufficient.
-        // The physics body will follow the container's transform.
-        // Reset when off screen
-        if (this.x < -this.obstacleWidth) { // Check against obstacleWidth (container width)
-            this.reset();
-        }
+        // updateFromGameObject will now correctly align the physics body (with offset 0,0)
+        // to the sprite's calculated top-left position based on its origin.
+        this.body.updateFromGameObject();
     }
     reset() {
-        // Get the current obstacle spacing from game scene for positioning
-        const spacing = this.gameScene.currentObstacleSpacing;
+        // reposition off to the right
+        const farthestX = this.gameScene.obstaclesGroup.getChildren()
+            .reduce((max, o) => Math.max(max, o.x), 0);
+        this.x = farthestX + this.gameScene.currentObstacleSpacing;
 
-        // Reset to position on the right side, using the current spacing for consistent difficulty
-        this.x = this.scene.sys.game.config.width + spacing;
-        // Check if we're past the 20-second mark
-        const elapsedTime = this.scene.time.now - this.gameScene.gameStartTime;
-        const pastDifficultyIncreaseTime = elapsedTime > this.gameScene.difficultyIncreaseTime;
-
-        // Determine if this obstacle should be from top or bottom
-        // After 20 seconds, if the last obstacle was from bottom, make this one from top
-        if (pastDifficultyIncreaseTime && !this.gameScene.lastObstacleFromTop) {
-            // Last was from bottom, make this one from top
+        // re‐decide top/bottom
+        const elapsed = this.scene.time.now - this.gameScene.gameStartTime;
+        const past = elapsed > this.gameScene.difficultyIncreaseTime;
+        if (past && !this.gameScene.lastObstacleFromTop) {
             this.fromTop = true;
-        } else if (pastDifficultyIncreaseTime && this.gameScene.pairRequired) {
-            // If we need to create a pair (bottom one after a top one), do it
+        } else if (past && this.gameScene.pairRequired) {
             this.fromTop = false;
             this.gameScene.pairRequired = false;
         } else {
-            // Before 20 seconds, or normal alternating pattern after 20 seconds
-            // Alternate from the last obstacle type
             this.fromTop = !this.gameScene.lastObstacleFromTop;
-
-            // If this is a top obstacle and we're past 20 seconds, set flag to create matching bottom one
-            if (this.fromTop && pastDifficultyIncreaseTime) {
-                this.gameScene.pairRequired = true;
-            }
+            if (this.fromTop && past) this.gameScene.pairRequired = true;
         }
-
-        // Update the game scene's tracking of last obstacle type
         this.gameScene.lastObstacleFromTop = this.fromTop;
 
-        // Use the game scene's current height ranges for the obstacles
-        const minGap = 150; // Minimum space for the bird (pixels)
-        const availableHeightForObstacle = this.gameHeight - minGap;
-        // Use the game scene's current height ranges, but clamp based on minGap
-        const minObstacleHeight = this.gameHeight * this.gameScene.currentMinHeight;
-        const maxObstacleHeightAllowed = Math.min(this.gameHeight * this.gameScene.currentMaxHeight, availableHeightForObstacle);
-        // Ensure min height doesn't exceed max allowed height
-        const clampedMinHeight = Math.min(minObstacleHeight, maxObstacleHeightAllowed);
-        // Calculate new height, ensuring it respects the minGap constraint
-        const rawHeight = Phaser.Math.Between(clampedMinHeight, maxObstacleHeightAllowed);
-        // Snap the height to the nearest multiple of barHeight
-        const barHeight = this.gameScene.barHeight;
-        const snappedHeight = Math.round(rawHeight / barHeight) * barHeight;
-        // Ensure the snapped height doesn't go below the minimum or above the maximum allowed
-        const newHeight = Phaser.Math.Clamp(snappedHeight, clampedMinHeight, maxObstacleHeightAllowed);
-        // Reconfigure the existing pipe instance
-        // If it's a top obstacle (cloud), destroy old graphics and create new ones
-        if (this.fromTop) {
-            // If it's a top obstacle (cloud)
-            if (this.obstacleSprite && this.obstacleSprite.texture.key !== 'cloud') {
-                // If it was a tree, destroy and create cloud image
-                this.obstacleSprite.destroy();
-                this.obstacleSprite = this.scene.add.image(0, 0, 'cloud');
-                this.addAt(this.obstacleSprite, 0);
-            } else if (!this.obstacleSprite) {
-                // If no sprite exists, create cloud image
-                this.obstacleSprite = this.scene.add.image(0, 0, 'cloud');
-                this.addAt(this.obstacleSprite, 0);
-            }
-            // The scaling will be handled in configurePipe
-        } else {
-            // If it's a bottom obstacle (tree)
-            if (this.obstacleSprite && this.obstacleSprite.texture.key !== 'pipe') {
-                // If it was a cloud, destroy and create tree image
-                this.obstacleSprite.destroy();
-                this.obstacleSprite = this.scene.add.image(0, 0, 'pipe');
-                this.addAt(this.obstacleSprite, 0);
-            } else if (!this.obstacleSprite) {
-                // If no sprite exists, create tree image
-                this.obstacleSprite = this.scene.add.image(0, 0, 'pipe');
-                this.addAt(this.obstacleSprite, 0);
-            }
+        // choose a new height and type (cloud/pipe)
+        const bar = this.gameScene.barHeight;
+        let newH;
+        // Determine if it's a cloud or a tree based on this.fromTop which is decided earlier in reset()
+        if (this.fromTop) { // It's a cloud
+            // Clouds: La (6th bar), Ti (7th bar), High Do (8th bar from bottom)
+            // Height in terms of barHeight units from the top:
+            const cloudLevels = [1, 2]; // Corresponds to High Do, Ti heights from top. Max height ends at top of La bar.
+            newH = cloudLevels[Math.floor(Math.random() * cloudLevels.length)] * bar;
+        } else { // It's a tree (pipe)
+            // Trees (pipes): Re(1), Mi(2), Fa(3), Sol(4) (0-indexed from bottom)
+            // Height in terms of barHeight units from the bottom:
+            const treeLevels = [2, 3, 4, 5]; // Corresponds to Re, Mi, Fa, Sol heights from bottom
+            newH = treeLevels[Math.floor(Math.random() * treeLevels.length)] * bar;
         }
-        // Reconfigure the existing obstacle instance
-        this.configurePipe(this.fromTop, newHeight);
-        // For static bodies, setting container x/y and body offset/size (done in configurePipe)
-        // should be sufficient. The physics system will use the container's transform.
-        // No explicit body.reset() needed here for static container bodies after repositioning.
+        this.configurePipe(this.fromTop, newH);
+
+        // reset physics body so it moves again
+        this.body.reset(this.x, this.y);
+        // speed is already correctly set during construction and reset uses the gameScene's current speed
+        this.speed = this.gameScene.currentObstacleSpeed * (this.fromTop ? 1.2 : 1); // Ensure speed is updated if clouds move faster
+        this.setActive(true);
+        this.setVisible(true);
     }
 }
-// KeySignatureDropdown.js
 class KeySignatureDropdown {
     constructor(scene, x, y, width, height, options, defaultOption, callback) {
         this.scene = scene;
@@ -264,24 +248,25 @@ class KeySignatureDropdown {
         this.width = width;
         this.height = height;
         this.options = options;
+        this.scrollFactor = 0; // Make dropdown immune to camera scroll
         this.selectedOption = defaultOption;
         this.callback = callback;
         this.isOpen = false;
+        this.hitArea = null;
         this.createDropdown();
     }
     createDropdown() {
-        const gameWidth = this.scene.sys.game.config.width;
-        const neonGreenColor = 0x00FF00; // Brighter retro green
+        const neonGreenColor = 0x00FF00;
         this.dropdownButton = this.scene.add.graphics();
-        this.dropdownButton.fillStyle(0x222222, 1); // Darker, solid fill for 8-bit
-        this.dropdownButton.lineStyle(3, 0x00FF00, 1); // Thicker, brighter border
+        this.dropdownButton.fillStyle(0x222222, 1);
+        // this.dropdownButton.lineStyle(3, neonGreenColor, 1); // Removed line style
         this.dropdownButton.fillRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
-        this.dropdownButton.strokeRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
+        // this.dropdownButton.strokeRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height); // Removed stroke
         this.dropdownButton.setDepth(300);
+        this.dropdownButton.setScrollFactor(0);
         this.dropdownText = this.scene.add.text(this.x, this.y, `${this.selectedOption} ▼`, {
             fontSize: '18px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -295,28 +280,29 @@ class KeySignatureDropdown {
         });
         this.dropdownText.setOrigin(0.5);
         this.dropdownText.setDepth(301);
-        const hitArea = this.scene.add.rectangle(this.x, this.y, this.width, this.height)
+        this.dropdownText.setScrollFactor(0);
+        this.hitArea = this.scene.add.rectangle(this.x, this.y, this.width, this.height)
             .setInteractive({
                 useHandCursor: true
             })
             .on('pointerdown', () => this.toggleDropdown());
-        hitArea.setOrigin(0.5);
-        hitArea.setAlpha(0.001);
+        this.hitArea.setOrigin(0.5);
+        this.hitArea.setAlpha(0.001);
         this.optionsContainer = this.scene.add.container(this.x, this.y + this.height / 2);
         this.optionsContainer.setVisible(false);
         this.optionsContainer.setDepth(300);
+        this.optionsContainer.setScrollFactor(0);
         this.options.forEach((option, index) => {
             const optionY = (index + 1) * this.height * 0.8;
             const optionGraphics = this.scene.add.graphics();
-            optionGraphics.fillStyle(0x2c2c2c, 1); // Slightly darker solid fill for options
+            optionGraphics.fillStyle(0x2c2c2c, 1);
             optionGraphics.fillRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8);
-            optionGraphics.lineStyle(2, 0x00FF00, 1); // Add border to options
-            optionGraphics.strokeRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8);
+            // optionGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
+            // optionGraphics.strokeRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8); // Removed stroke
             this.optionsContainer.add(optionGraphics);
             const optionText = this.scene.add.text(0, optionY, option, {
                 fontSize: '16px',
                 fontFamily: '"VT323", monospace',
-                fontStyle: 'normal',
                 color: '#FFFFFF',
                 align: 'center',
                 shadow: {
@@ -363,44 +349,48 @@ class KeySignatureDropdown {
         this.dropdownText.setText(`${this.selectedOption} ▼`);
         this.isOpen = false;
         this.optionsContainer.setVisible(false);
-        if (this.callback) {
-            this.callback(option);
-        }
-        console.log("Selected Key Signature:", option);
+        if (this.callback) this.callback(option);
     }
     closeDropdown() {
         this.isOpen = false;
         this.optionsContainer.setVisible(false);
         this.dropdownText.setText(`${this.selectedOption} ▼`);
     }
-    getSelectedOption() {
-        return this.selectedOption;
+    setSelectedOption(option) {
+        if (this.options.includes(option)) {
+            this.selectedOption = option;
+            this.dropdownText.setText(`${this.selectedOption} ${this.isOpen ? '▲' : '▼'}`);
+        } else {
+            console.warn(`KeySignatureDropdown: Option "${option}" not found.`);
+        }
+    }
+    destroy() {
+        if (this.dropdownButton) this.dropdownButton.destroy();
+        if (this.dropdownText) this.dropdownText.destroy();
+        if (this.optionsContainer) this.optionsContainer.destroy(true); // destroy children too
+        if (this.hitArea) this.hitArea.destroy();
+        // Remove the global pointerdown listener if it was added
+        // this.scene.input.off('pointerdown', this.globalPointerDownHandler, this);
     }
 }
+
 class StartScreen extends Phaser.Scene {
     constructor() {
         super('StartScreen');
     }
     preload() {
-        // Preload bird image for feather particles
         this.load.image('bird1', 'https://play.rosebud.ai/assets/Bird_01.png?5daF');
-        // Create audio context for tone generation
         this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
     }
     create() {
-        // Create a black background
         const gameWidth = this.sys.game.config.width;
         const gameHeight = this.sys.game.config.height;
-        // Black background
         const blackBg = this.add.rectangle(0, 0, gameWidth, gameHeight, 0x000000);
         blackBg.setOrigin(0, 0);
-        // Define neon green color for consistency
         const neonGreenColor = 0x39FF14;
-        // Add "Pitchy Bird" title
         const titleText = this.add.text(gameWidth / 2, gameHeight * 0.25, "Pitchy Bird", {
-            fontSize: 'calc(3.75em + 6vmin)', // Responsive font size
-            fontFamily: '"VT323", monospace', // Pixel font with a clean, geometric feel
-            fontStyle: 'normal', // Ensure normal style
+            fontSize: 'calc(3.75em + 6vmin)',
+            fontFamily: '"VT323", monospace',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -413,9 +403,7 @@ class StartScreen extends Phaser.Scene {
             }
         });
         titleText.setOrigin(0.5);
-        titleText.setDepth(10); // Ensure it's above other UI elements
-        const darkBackgroundColor = 0x333333;
-        // Create floating yellow feathers in the background
+        titleText.setDepth(10);
         this.floatingFeathers = this.add.particles('bird1');
         this.floatingEmitter = this.floatingFeathers.createEmitter({
             x: {
@@ -442,7 +430,7 @@ class StartScreen extends Phaser.Scene {
                 min: 0,
                 max: 360
             },
-            tint: 0xFFFF00, // Brighter yellow color
+            tint: 0xFFFF00,
             alpha: {
                 start: 0.8,
                 end: 0.3
@@ -451,46 +439,29 @@ class StartScreen extends Phaser.Scene {
                 min: 4000,
                 max: 8000
             },
-            quantity: 2, // Doubled the quantity
-            frequency: 150, // Emitting more frequently (was 300ms)
+            quantity: 2,
+            frequency: 150,
             blendMode: 'ADD'
         });
-        // Track cursor position for feather interaction
         this.input.on('pointermove', (pointer) => {
-            // Track previous pointer position
             this.pointer = this.pointer || {
                 x: pointer.x,
                 y: pointer.y
             };
-
-            // Calculate movement vector
             const dx = pointer.x - this.pointer.x;
             const dy = pointer.y - this.pointer.y;
-
-            // Update stored pointer position
             this.pointer.x = pointer.x;
             this.pointer.y = pointer.y;
-
-            // If there's significant movement, create a "wind" effect
             if (dx !== 0 || dy !== 0) {
                 const magnitude = Math.sqrt(dx * dx + dy * dy);
-
-                if (magnitude > 5) { // Only react to more significant movements
-                    // Create new particles at the cursor position when moving
+                if (magnitude > 5) {
                     this.floatingEmitter.explode(4, pointer.x, pointer.y);
-
-                    // Modify emitter properties in ways that are supported
-                    // Adjust speed and direction based on cursor movement
                     this.floatingEmitter.setSpeed(100 + magnitude);
-
-                    // Set the angle opposite to the movement direction
                     const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 180) % 360;
                     this.floatingEmitter.setAngle({
                         min: angle - 30,
                         max: angle + 30
                     });
-
-                    // Reset emitter properties after a delay
                     setTimeout(() => {
                         this.floatingEmitter.setSpeed({
                             min: 20,
@@ -504,47 +475,23 @@ class StartScreen extends Phaser.Scene {
                 }
             }
         });
-
-        // Create a dropdown menu for instrument selection
-        const dropdownWidth = 320; // Wider dropdown menu
+        const dropdownWidth = 320;
         const dropdownHeight = 50;
-        const dropdownY = gameHeight / 2; // Position above the main button, moved down
-
-        // Create the dropdown background with rounded corners
+        const dropdownY = gameHeight / 2;
         const dropdown = this.add.graphics();
-        dropdown.fillStyle(0x222222, 1); // Darker, solid fill
-        dropdown.lineStyle(3, neonGreenColor, 1); // Thicker border
-        dropdown.fillRect(
-            gameWidth / 2 - dropdownWidth / 2,
-            dropdownY - dropdownHeight / 2,
-            dropdownWidth,
-            dropdownHeight
-        );
-        dropdown.strokeRect(
-            gameWidth / 2 - dropdownWidth / 2,
-            dropdownY - dropdownHeight / 2,
-            dropdownWidth,
-            dropdownHeight
-        );
-
-        // Make the dropdown interactive
-        const dropdownHitArea = this.add.rectangle(
-            gameWidth / 2,
-            dropdownY,
-            dropdownWidth,
-            dropdownHeight
-        );
+        dropdown.fillStyle(0x222222, 1);
+        // dropdown.lineStyle(3, neonGreenColor, 1); // Removed line style
+        dropdown.fillRect(gameWidth / 2 - dropdownWidth / 2, dropdownY - dropdownHeight / 2, dropdownWidth, dropdownHeight);
+        // dropdown.strokeRect(gameWidth / 2 - dropdownWidth / 2, dropdownY - dropdownHeight / 2, dropdownWidth, dropdownHeight); // Removed stroke
+        const dropdownHitArea = this.add.rectangle(gameWidth / 2, dropdownY, dropdownWidth, dropdownHeight);
         dropdownHitArea.setOrigin(0.5);
         dropdownHitArea.setInteractive({
             useHandCursor: true
         });
-        dropdownHitArea.setAlpha(0.001); // Invisible hit area
-
-        // Add label text inside the dropdown
+        dropdownHitArea.setAlpha(0.001);
         const dropdownText = this.add.text(gameWidth / 2, dropdownY, "Select Instrument ▼", {
             fontSize: '20px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -557,336 +504,172 @@ class StartScreen extends Phaser.Scene {
             }
         });
         dropdownText.setOrigin(0.5);
-
-        // Available instrument options
         const instrumentOptions = [
-            // Voices
             "Soprano", "Alto", "Tenor", "Baritone", "Bass",
-
-            // Band Instruments
             "Flute", "Clarinet", "Oboe", "Bassoon",
             "Soprano Saxophone", "Alto Saxophone", "Tenor Saxophone", "Baritone Saxophone",
             "Trumpet", "French Horn", "Trombone", "Baritone Horn", "Tuba",
-
-            // Orchestra Instruments
             "Violin", "Viola", "Cello", "Double Bass",
-
-            // Other
             "Guitar", "Ukulele", "Piano"
         ];
-
-        // Define option height
         const optionHeight = 40;
-
-        // Set a fixed height for the dropdown (showing ~5 options at once)
         const visibleOptionsCount = 5;
         const optionsContainerHeight = visibleOptionsCount * optionHeight;
-
-        // Create the dropdown options container (initially hidden)
         const optionsContainer = this.add.container(gameWidth / 2, dropdownY + dropdownHeight / 2);
-        optionsContainer.setSize(dropdownWidth, optionsContainerHeight); // Fixed height container
+        optionsContainer.setSize(dropdownWidth, optionsContainerHeight);
         optionsContainer.setVisible(false);
-        optionsContainer.setDepth(100); // Set high depth for the entire container
-
-        // Create a container for the actual options that can be moved for scrolling
+        optionsContainer.setDepth(100);
         const optionsContent = this.add.container(0, 0);
         optionsContainer.add(optionsContent);
-        // Create an array to store all option text elements for easier management
         const optionTextElements = [];
-        // Track scroll position and total height
         const totalContentHeight = instrumentOptions.length * optionHeight;
         let scrollY = 0;
         const maxScroll = Math.max(0, totalContentHeight - optionsContainerHeight);
-
-        // Create options
-        let selectedInstrument = "Soprano"; // Default selection
-
+        let selectedInstrument = "Soprano";
         instrumentOptions.forEach((instrument, index) => {
-            // Create option background
             const optionY = index * optionHeight;
-            // Create option with rounded corners
             const optionGraphics = this.add.graphics();
-            optionGraphics.fillStyle(0x2c2c2c, 1); // Darker option fill
-            optionGraphics.fillRect(
-                -dropdownWidth / 2,
-                optionY,
-                dropdownWidth,
-                optionHeight
-            );
-            optionGraphics.lineStyle(2, neonGreenColor, 1); // Thicker border for options
-            optionGraphics.strokeRect(
-                -dropdownWidth / 2,
-                optionY,
-                dropdownWidth,
-                optionHeight
-            );
+            optionGraphics.fillStyle(0x2c2c2c, 1);
+            optionGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
+            // optionGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
+            // optionGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
             optionGraphics.setDepth(150);
-            optionsContent.add(optionGraphics);
-
-            // Store the graphics object in a property for easier access
             optionGraphics.optionIndex = index;
-
-            // Create hit area for interaction
-            const option = this.add.rectangle(
-                0,
-                optionY + optionHeight / 2,
-                dropdownWidth,
-                optionHeight,
-                0x30B060
-            );
-            option.alpha = 0.001; // Invisible hit area
+            optionsContent.add(optionGraphics);
+            const option = this.add.rectangle(0, optionY + optionHeight / 2, dropdownWidth, optionHeight, 0x30B060);
+            option.alpha = 0.001;
             option.setOrigin(0.5);
             option.setDepth(150);
             option.setInteractive({
                 useHandCursor: true
             });
-            // Add option text with absolute positioning for better visibility
-            const optionText = this.add.text(
-                gameWidth / 2, // Absolute position instead of container-relative
-                dropdownY + dropdownHeight + optionY + optionHeight / 2,
-                instrument, {
-                    fontSize: '16px',
-                    fontFamily: '"VT323", monospace',
-                    fontStyle: 'normal',
-                    color: '#FFFFFF',
-                    align: 'center',
-                    shadow: {
-                        offsetX: 1,
-                        offsetY: 1,
-                        color: '#39FF14',
-                        blur: 1,
-                        stroke: true,
-                        fill: true
-                    }
+            const optionText = this.add.text(gameWidth / 2, dropdownY + dropdownHeight + optionY + optionHeight / 2, instrument, {
+                fontSize: '16px',
+                fontFamily: '"VT323", monospace',
+                color: '#FFFFFF',
+                align: 'center',
+                shadow: {
+                    offsetX: 1,
+                    offsetY: 1,
+                    color: '#39FF14',
+                    blur: 1,
+                    stroke: true,
+                    fill: true
                 }
-            );
-            optionText.setShadow(1, 1, '#39FF14', 1, true, true);
+            });
             optionText.setOrigin(0.5);
-            optionText.setDepth(999); // Absolute highest depth value
-            optionText.setVisible(false); // Initially hidden
-            // Add to tracking array
+            optionText.setDepth(999);
+            optionText.setVisible(false);
             optionTextElements.push(optionText);
-
-            // Add hover effect with index references to find the correct graphics
             option.on('pointerover', () => {
-                // Create a new graphics object for the hover state
                 const hoveredGraphics = this.add.graphics();
-
-                // Draw highlighted rectangle
-                hoveredGraphics.fillStyle(0x383838, 1); // Slightly lighter solid fill for hover
-                hoveredGraphics.fillRect(
-                    -dropdownWidth / 2,
-                    optionY,
-                    dropdownWidth,
-                    optionHeight
-                );
-                hoveredGraphics.lineStyle(2, 0x39FF14, 1); // Consistent thicker border
-                hoveredGraphics.strokeRect(
-                    -dropdownWidth / 2,
-                    optionY,
-                    dropdownWidth,
-                    optionHeight
-                );
-
-                // Replace the old graphics with the new one
+                hoveredGraphics.fillStyle(0x383838, 1);
+                hoveredGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
+                // hoveredGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
+                // hoveredGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
                 const children = optionsContent.getAll();
-
-                // Find the existing graphics object by optionIndex and remove it
                 for (let i = 0; i < children.length; i++) {
                     if (children[i].optionIndex === index && children[i].type === 'Graphics') {
-                        optionsContent.remove(children[i], true); // Remove and destroy
+                        optionsContent.remove(children[i], true);
                         break;
                     }
                 }
-
-                // Add the new graphics and store the index
                 hoveredGraphics.optionIndex = index;
                 hoveredGraphics.setDepth(150);
                 optionsContent.add(hoveredGraphics);
             });
-
             option.on('pointerout', () => {
-                // Create a new graphics object for the normal state
                 const normalGraphics = this.add.graphics();
-
-                // Draw normal rectangle
-                normalGraphics.fillStyle(0x2c2c2c, 1); // Normal option fill (darker)
-                normalGraphics.fillRect(
-                    -dropdownWidth / 2,
-                    optionY,
-                    dropdownWidth,
-                    optionHeight
-                );
-                normalGraphics.lineStyle(2, neonGreenColor, 1); // Consistent thicker border
-                normalGraphics.strokeRect(
-                    -dropdownWidth / 2,
-                    optionY,
-                    dropdownWidth,
-                    optionHeight
-                );
-
-                // Replace the old graphics with the new one
+                normalGraphics.fillStyle(0x2c2c2c, 1);
+                normalGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
+                // normalGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
+                // normalGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
                 const children = optionsContent.getAll();
-
-                // Find the existing graphics object by optionIndex and remove it
                 for (let i = 0; i < children.length; i++) {
                     if (children[i].optionIndex === index && children[i].type === 'Graphics') {
-                        optionsContent.remove(children[i], true); // Remove and destroy
+                        optionsContent.remove(children[i], true);
                         break;
                     }
                 }
-
-                // Add the new graphics and store the index
                 normalGraphics.optionIndex = index;
                 normalGraphics.setDepth(150);
                 optionsContent.add(normalGraphics);
             });
-
-            // Selection behavior
             option.on('pointerdown', () => {
                 selectedInstrument = instrument;
                 dropdownText.setText(instrument + " ▼");
                 optionsContainer.setVisible(false);
                 scrollbarBg.setVisible(false);
                 scrollbarHandle.setVisible(false);
-                // Hide all option texts when selection is made
-                optionTextElements.forEach(text => {
-                    text.setVisible(false);
-                });
-                // Store selection for game scene
+                optionTextElements.forEach(text => text.setVisible(false));
                 this.registry.set('selectedInstrument', instrument);
-                // Play selection effect
                 this.featherEmitter.explode(15, dropdown.x, dropdown.y);
-
-                // Get the Do frequency for this instrument
                 const doFrequency = this.getDoFrequencyForInstrument(instrument);
-
-                // Play the Do note
                 this.playDoNote(doFrequency);
-
-                console.log("Selected instrument:", instrument);
             });
-
-            // Add only the rectangle to the container, NOT the text
             optionsContent.add([option]);
-
-            // Store reference to the text in the option for easier management
             option.optionText = optionText;
         });
-
-        // Create a mask for the options container to clip content
         const mask = this.make.graphics();
         mask.fillStyle(0xffffff);
-        mask.fillRect(
-            gameWidth / 2 - dropdownWidth / 2,
-            dropdownY + dropdownHeight,
-            dropdownWidth,
-            optionsContainerHeight
-        );
-        // Apply the mask only to the content container (not text)
+        mask.fillRect(gameWidth / 2 - dropdownWidth / 2, dropdownY + dropdownHeight, dropdownWidth, optionsContainerHeight);
         const geometryMask = mask.createGeometryMask();
         optionsContent.setMask(geometryMask);
-        // Create scrollbar background - positioned within the optionsContainer
-        const scrollbarBgWidth = 12; // Slightly wider for better visibility
-        const scrollbarBg = this.add.rectangle(
-            dropdownWidth / 2 - scrollbarBgWidth, // Positioned to the right edge, within optionsContainer
-            0, // Align with the top of the optionsContainer for scrolling
-            scrollbarBgWidth,
-            optionsContainerHeight,
-            0x1a1a1a // Darker, less obtrusive scrollbar background
-        );
-        scrollbarBg.setOrigin(0.5, 0); // Origin at top-center
-        scrollbarBg.setAlpha(0.8); // Slightly more opaque
+        const scrollbarBgWidth = 12;
+        const scrollbarBg = this.add.rectangle(dropdownWidth / 2 - scrollbarBgWidth, 0, scrollbarBgWidth, optionsContainerHeight, 0x1a1a1a);
+        scrollbarBg.setOrigin(0.5, 0);
+        scrollbarBg.setAlpha(0.8);
         scrollbarBg.setVisible(false);
-        optionsContainer.add(scrollbarBg); // Add to optionsContainer
-        // Create scrollbar handle - also positioned within optionsContainer
-        const scrollbarHandleWidth = 8; // Slightly narrower handle
-        const scrollbarHandleHeight = Math.max(20, (optionsContainerHeight / totalContentHeight) * optionsContainerHeight); // Min height
-        const scrollbarHandle = this.add.rectangle(
-            scrollbarBg.x, // Centered on the scrollbar background
-            0, // Initial Y position, aligned with the top of the scrollbar track
-            scrollbarHandleWidth,
-            scrollbarHandleHeight,
-            neonGreenColor
-        );
-        scrollbarHandle.setOrigin(0.5, 0); // Origin at top-center
-        scrollbarHandle.setAlpha(0.9); // More opaque handle
+        optionsContainer.add(scrollbarBg);
+        const scrollbarHandleWidth = 8;
+        const scrollbarHandleHeight = Math.max(20, (optionsContainerHeight / totalContentHeight) * optionsContainerHeight);
+        const scrollbarHandle = this.add.rectangle(scrollbarBg.x, 0, scrollbarHandleWidth, scrollbarHandleHeight, neonGreenColor);
+        scrollbarHandle.setOrigin(0.5, 0);
+        scrollbarHandle.setAlpha(0.9);
         scrollbarHandle.setVisible(false);
-        optionsContainer.add(scrollbarHandle); // Add to optionsContainer
-        // Implement dragging for the scrollbar
+        optionsContainer.add(scrollbarHandle);
         scrollbarHandle.setInteractive({
             useHandCursor: true,
             draggable: true
         });
-        // Drag event for the scrollbar handle
         scrollbarHandle.on('drag', (pointer, dragX, dragY) => {
             if (!optionsContainer.visible || !scrollbarHandle.visible || !scrollbarHandle.input || !scrollbarHandle.input.dragStartPoint) return;
-            // Calculate boundaries for the handle within the scrollbar background track
-            // The scrollbar background's origin is (0.5, 0) and it's positioned at y=0 within optionsContainer.
-            // So the track top is effectively 0 (or scrollbarHandle.height / 2 if origin was 0.5, 0.5 for handle)
-            // Since handle origin is (0.5,0), its y is its top.
             const trackTopY = 0;
             const trackBottomY = optionsContainerHeight - scrollbarHandle.height;
-            // dragY is the pointer's current y in world space.
-            // optionsContainer.y is the world y of the optionsContainer's top.
-            // scrollbarHandle.input.dragStartPoint.y is where the drag started on the handle *within the handle itself*.
-            // scrollbarHandle.input.dragStartY is the handle's y within optionsContainer at drag start.
             let newHandleY = (pointer.y - optionsContainer.y) - scrollbarHandle.input.dragStartPoint.y + scrollbarHandle.input.dragStartY;
             newHandleY = Phaser.Math.Clamp(newHandleY, trackTopY, trackBottomY);
             scrollbarHandle.y = newHandleY;
-            // Calculate new scroll position based on handle position
-            // scrollProgress is 0 when handle is at trackTopY, 1 when at trackBottomY
             const scrollProgress = (trackBottomY - trackTopY === 0) ? 0 : (newHandleY - trackTopY) / (trackBottomY - trackTopY);
             scrollY = scrollProgress * maxScroll;
-            // Update content position
             optionsContent.y = -scrollY;
-            // Update text positions based on scroll
             optionTextElements.forEach((text, index) => {
-                const optionAbsoluteY = index * optionHeight; // Y relative to optionsContent
-                // Calculate visible Y relative to the main scene, considering optionsContainer's position and current scroll
-                // optionsContainer.y is the absolute y of the top of the options container (where items start appearing)
-                // optionsContent.y is the current scroll offset (-scrollY)
+                const optionAbsoluteY = index * optionHeight;
                 const visibleY = optionsContainer.y + optionAbsoluteY + optionHeight / 2 + optionsContent.y;
-                // Only make visible if within the visible area of the dropdown
-                const isWithinVisibleArea =
-                    visibleY >= optionsContainer.y &&
-                    visibleY <= optionsContainer.y + optionsContainerHeight;
+                const isWithinVisibleArea = visibleY >= optionsContainer.y && visibleY <= optionsContainer.y + optionsContainerHeight;
                 text.setVisible(optionsContainer.visible && isWithinVisibleArea);
                 text.setY(visibleY);
             });
         });
-        // Set up scroll wheel handling with improved hit detection
         this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
             if (optionsContainer.visible) {
-                // Calculate pointer position relative to options container
                 const optionsContainerBounds = {
                     x: gameWidth / 2 - dropdownWidth / 2,
-                    y: dropdownY + dropdownHeight, // This is the absolute Y of the optionsContainer
+                    y: dropdownY + dropdownHeight,
                     width: dropdownWidth,
                     height: optionsContainerHeight
                 };
-                // Only scroll if pointer is over the options area
-                if (pointer.x >= optionsContainerBounds.x &&
-                    pointer.x <= optionsContainerBounds.x + optionsContainerBounds.width &&
-                    pointer.y >= optionsContainerBounds.y &&
-                    pointer.y <= optionsContainerBounds.y + optionsContainerHeight) {
-                    // Update scroll position
-                    scrollY += deltaY * 0.5; // Adjust scroll speed
+                if (pointer.x >= optionsContainerBounds.x && pointer.x <= optionsContainerBounds.x + optionsContainerBounds.width &&
+                    pointer.y >= optionsContainerBounds.y && pointer.y <= optionsContainerBounds.y + optionsContainerHeight) {
+                    scrollY += deltaY * 0.5;
                     scrollY = Phaser.Math.Clamp(scrollY, 0, maxScroll);
-                    // Update content position
                     optionsContent.y = -scrollY;
-                    // Update text positions based on scroll
                     optionTextElements.forEach((text, index) => {
                         const optionY = index * optionHeight;
                         const visibleY = optionsContainer.y + optionY + optionHeight / 2 - scrollY;
-                        // Only make visible if within the visible area
-                        const isWithinVisibleArea =
-                            visibleY >= optionsContainer.y &&
-                            visibleY <= optionsContainer.y + optionsContainerHeight;
+                        const isWithinVisibleArea = visibleY >= optionsContainer.y && visibleY <= optionsContainer.y + optionsContainerHeight;
                         text.setVisible(optionsContainer.visible && isWithinVisibleArea);
                         text.setY(visibleY);
                     });
-                    // Update scrollbar handle position (local Y within optionsContainer) based on scrollY
                     const trackTopY = 0;
                     const trackBottomY = optionsContainerHeight - scrollbarHandle.height;
                     const scrollProgress = maxScroll === 0 ? 0 : scrollY / maxScroll;
@@ -894,97 +677,52 @@ class StartScreen extends Phaser.Scene {
                 }
             }
         });
-        // Fix layering by correctly ordering the elements
-        // First add the white border (at the bottom layer)
-        const optionsBorder = this.add.rectangle(
-            0,
-            optionsContainerHeight / 2,
-            dropdownWidth + 6,
-            optionsContainerHeight + 6,
-            neonGreenColor
-        );
+        const optionsBorder = this.add.rectangle(0, optionsContainerHeight / 2, dropdownWidth + 6, optionsContainerHeight + 6, neonGreenColor);
         optionsBorder.setOrigin(0.5);
-        optionsBorder.setDepth(-2); // Lowest depth
+        optionsBorder.setDepth(-2);
         optionsContainer.add(optionsBorder);
-        // Then add the green background on top of the border
-        const optionsBackground = this.add.rectangle(
-            0,
-            optionsContainerHeight / 2,
-            dropdownWidth + 4,
-            optionsContainerHeight + 4,
-            0x222222 // Darker background for options container
-        );
+        const optionsBackground = this.add.rectangle(0, optionsContainerHeight / 2, dropdownWidth + 4, optionsContainerHeight + 4, 0x222222);
         optionsBackground.setOrigin(0.5);
-        optionsBackground.setDepth(-1); // Middle depth
+        optionsBackground.setDepth(-1);
         optionsContainer.add(optionsBackground);
-        // Ensure all text elements are at a very high depth
         optionsContainer.each(child => {
             if (child.type === 'Text') {
-                child.setDepth(200); // Ensure text has highest depth
-                child.setVisible(true); // Make sure text is explicitly visible
+                child.setDepth(200);
+                child.setVisible(true);
             }
         });
-        // Make sure the container and its children are properly interactive
         optionsContainer.setSize(dropdownWidth, instrumentOptions.length * optionHeight);
-
-        // Toggle dropdown on click
         dropdownHitArea.on('pointerdown', () => {
             const newVisibility = !optionsContainer.visible;
             optionsContainer.setVisible(newVisibility);
             scrollbarBg.setVisible(newVisibility);
             scrollbarHandle.setVisible(newVisibility);
             this.featherEmitter.explode(10, dropdown.x, dropdown.y);
-
-            // Update visibility and position of all option texts
             optionTextElements.forEach((text, index) => {
                 const optionY = index * optionHeight;
-                // Calculate the visible position accounting for scroll
                 const visibleY = dropdownY + dropdownHeight + optionY + optionHeight / 2 - scrollY;
-
-                // Only make visible if within the visible area of the dropdown
-                const isWithinVisibleArea =
-                    visibleY >= dropdownY + dropdownHeight &&
-                    visibleY <= dropdownY + dropdownHeight + optionsContainerHeight;
-
+                const isWithinVisibleArea = visibleY >= dropdownY + dropdownHeight && visibleY <= dropdownY + dropdownHeight + optionsContainerHeight;
                 text.setVisible(newVisibility && isWithinVisibleArea);
                 text.setY(visibleY);
             });
-
-            // Position container properly
             optionsContainer.setPosition(gameWidth / 2, dropdownY + dropdownHeight);
-            // Reset scroll position when opening dropdown
             scrollY = 0;
             optionsContent.y = 0;
-            // Reset handle to top of its track (relative to scrollbarBg)
-            // scrollbarBg is centered in optionsContainer. Handle origin is 0.5, 0.
-            // So, top of track is at scrollbarBg.y - scrollbarBg.height/2 + scrollbarHandle.height/2
-            // Since scrollbarBg.y is 0 and handle origin is (0.5,0), its top is at y=0.
-            scrollbarHandle.y = 0; // Align handle to the top of its track
-            // Make sure options container is on top of everything else
+            scrollbarHandle.y = 0;
             optionsContainer.setDepth(100);
-
-            // Refresh each option's visibility and z-order
             optionsContent.each(child => {
                 child.setVisible(true);
-                if (child.type === 'Text') {
-                    child.setDepth(200); // Much higher depth for text
-                } else if (child.type === 'Rectangle') {
-                    // Make sure option backgrounds are visible but below text
+                if (child.type === 'Text') child.setDepth(200);
+                else if (child.type === 'Rectangle') {
                     child.setDepth(150);
-                    child.setVisible(true); // Explicitly make visible
-                    // Ensure rectangle has proper fill color
+                    child.setVisible(true);
                     if (child !== optionsBorder && child !== optionsBackground) {
                         child.setFillStyle(0x444444);
-                        child.setAlpha(0.95); // Ensure proper transparency
+                        child.setAlpha(0.95);
                     }
                 }
             });
-
-            // Debug helper
-            console.log("Dropdown clicked - options visible:", optionsContainer.visible);
         });
-
-        // Close dropdown when clicking elsewhere
         this.input.on('pointerdown', (pointer) => {
             const optionsRect = {
                 x: gameWidth / 2 - dropdownWidth / 2,
@@ -992,99 +730,43 @@ class StartScreen extends Phaser.Scene {
                 width: dropdownWidth,
                 height: optionsContainerHeight
             };
-
             const dropdownRect = {
                 x: gameWidth / 2 - dropdownWidth / 2,
                 y: dropdownY - dropdownHeight / 2,
                 width: dropdownWidth,
                 height: dropdownHeight
             };
-
-            // Check if click is outside both the dropdown button and the options list
-            const clickedOptions = pointer.x >= optionsRect.x &&
-                pointer.x <= optionsRect.x + optionsRect.width &&
-                pointer.y >= optionsRect.y &&
-                pointer.y <= optionsRect.y + optionsRect.height;
-
-            const clickedDropdown = pointer.x >= dropdownRect.x &&
-                pointer.x <= dropdownRect.x + dropdownRect.width &&
-                pointer.y >= dropdownRect.y &&
-                pointer.y <= dropdownRect.y + dropdownRect.height;
-
+            const clickedOptions = pointer.x >= optionsRect.x && pointer.x <= optionsRect.x + optionsRect.width && pointer.y >= optionsRect.y && pointer.y <= optionsRect.y + optionsRect.height;
+            const clickedDropdown = pointer.x >= dropdownRect.x && pointer.x <= dropdownRect.x + dropdownRect.width && pointer.y >= dropdownRect.y && pointer.y <= dropdownRect.y + dropdownRect.height;
             if (optionsContainer.visible && !clickedOptions && !clickedDropdown) {
                 optionsContainer.setVisible(false);
                 scrollbarBg.setVisible(false);
                 scrollbarHandle.setVisible(false);
-                // Hide all option texts when dropdown is closed
-                optionTextElements.forEach(text => {
-                    text.setVisible(false);
-                });
-
-                console.log("Clicked outside - hiding options");
+                optionTextElements.forEach(text => text.setVisible(false));
             }
         });
-        // Create a professional looking button with gradient and rounded corners
         const buttonWidth = 220;
         const buttonHeight = 80;
-
-        // Button graphics with gradient fill and rounded corners
         const buttonGraphics = this.add.graphics();
-
-        // Create a professional gradient button
         const createButton = (isHover = false) => {
             buttonGraphics.clear();
-            // Button shadow 
-            buttonGraphics.fillStyle(0x000000, 0.5); // Darker shadow for 8-bit
-            buttonGraphics.fillRect( // Sharp corners for shadow
-                gameWidth / 2 - buttonWidth / 2 + 4, // Adjusted shadow offset
-                gameHeight / 2 + 100 - buttonHeight / 2 + 4, // Adjusted shadow offset
-                buttonWidth,
-                buttonHeight
-            );
-            // Main button body - solid retro colors
-            if (isHover) {
-                buttonGraphics.fillStyle(0x444444, 1); // Lighter dark gray for hover
-            } else {
-                buttonGraphics.fillStyle(0x222222, 1); // Darker solid fill for normal button
-            }
-            // Fill the main button with sharp corners
-            buttonGraphics.fillRect(
-                gameWidth / 2 - buttonWidth / 2,
-                gameHeight / 2 + 100 - buttonHeight / 2,
-                buttonWidth,
-                buttonHeight
-            );
-            // Button border - solid white for 8-bit
-            buttonGraphics.lineStyle(3, neonGreenColor, 1); // Thicker border for button
-            buttonGraphics.strokeRect(
-                gameWidth / 2 - buttonWidth / 2,
-                gameHeight / 2 + 100 - buttonHeight / 2,
-                buttonWidth,
-                buttonHeight
-            );
+            buttonGraphics.fillStyle(0x000000, 0.5);
+            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2 + 4, gameHeight / 2 + 100 - buttonHeight / 2 + 4, buttonWidth, buttonHeight);
+            buttonGraphics.fillStyle(isHover ? 0x444444 : 0x222222, 1);
+            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight);
+            // buttonGraphics.lineStyle(3, neonGreenColor, 1); // Removed line style
+            // buttonGraphics.strokeRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight); // Removed stroke
         };
-
-        // Create initial button
         createButton();
-
-        // Create hit area for the button
-        const button = this.add.rectangle(
-            gameWidth / 2,
-            gameHeight / 2 + 100,
-            buttonWidth,
-            buttonHeight
-        );
+        const button = this.add.rectangle(gameWidth / 2, gameHeight / 2 + 100, buttonWidth, buttonHeight);
         button.setOrigin(0.5);
         button.setInteractive({
             useHandCursor: true
         });
-        button.setAlpha(0.001); // Invisible hit area
-
-        // Add "Let's Fly!" text inside the button
+        button.setAlpha(0.001);
         const text = this.add.text(gameWidth / 2, gameHeight / 2 + 100, "Let's Fly!", {
             fontSize: '28px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -1097,8 +779,6 @@ class StartScreen extends Phaser.Scene {
             }
         });
         text.setOrigin(0.5);
-
-        // Create particle system for button hover effect
         this.featherParticles = this.add.particles('bird1');
         this.featherEmitter = this.featherParticles.createEmitter({
             x: button.x,
@@ -1119,26 +799,20 @@ class StartScreen extends Phaser.Scene {
                 min: 0,
                 max: 360
             },
-            tint: 0xFFFF00, // Brighter yellow color
+            tint: 0xFFFF00,
             alpha: {
                 start: 1,
                 end: 0
             },
             lifespan: 2000,
             quantity: 20,
-            on: false // Start disabled
+            on: false
         });
-        // Button events with improved visual feedback
         button.on('pointerover', () => {
-            // Create feather confetti effect
             this.featherEmitter.explode(30, button.x, button.y);
-
-            // Update button appearance
             createButton(true);
-            // Enhanced text appearance on hover
             text.setColor('#FFFFFF');
             text.setShadow(2, 2, '#5CFF5C', 3, true, true);
-            // Create a more subtle and professional pulsing effect
             this.buttonPulseTween = this.tweens.add({
                 targets: text,
                 scaleX: {
@@ -1155,21 +829,16 @@ class StartScreen extends Phaser.Scene {
                 ease: 'Sine.easeInOut'
             });
         });
-
         button.on('pointerout', () => {
-            // Restore normal button appearance
             createButton(false);
-            // Restore normal text appearance
             text.setColor('#FFFFFF');
             text.setShadow(2, 2, '#39FF14', 3, true, true);
-            // Stop the pulsing animation
             if (this.buttonPulseTween) {
                 this.buttonPulseTween.stop();
                 text.setScale(1);
             }
         });
         button.on('pointerdown', () => {
-            // Click effect - briefly "press" the button
             this.tweens.add({
                 targets: [buttonGraphics, text],
                 y: '+= 4',
@@ -1177,24 +846,22 @@ class StartScreen extends Phaser.Scene {
                 ease: 'Power1',
                 yoyo: true,
                 onComplete: () => {
-                    // Start the game scene with the selected instrument
                     const instrument = this.registry.get('selectedInstrument') || 'Soprano';
+                    let defaultKeyForInstrument = 'C Major';
+                    if (instrument === 'Tenor') defaultKeyForInstrument = 'F Major';
+                    // Add other instrument-specific key signature defaults here if needed
+                    this.registry.set('userSelectedKeySignature', defaultKeyForInstrument);
                     this.scene.start('GameScene', {
-                        instrument: instrument
+                        instrument: instrument,
+                        selectedKeySignature: defaultKeyForInstrument
                     });
                 }
             });
-
-            // Additional click feedback with emitter
             this.featherEmitter.explode(50, button.x, button.y);
         });
     }
-
-    // Method to get the 'Do' (lowest note) frequency for the selected instrument
     getDoFrequencyForInstrument(instrument) {
-        // Get the appropriate frequency array for the instrument
         let freqArray;
-
         switch (instrument) {
             case 'Soprano':
                 freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
@@ -1272,68 +939,38 @@ class StartScreen extends Phaser.Scene {
                 freqArray = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
                 break;
             default:
-                // Default to soprano range
                 freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
         }
-
-        // Return the lowest Do frequency (index 7)
         return freqArray[7];
     }
-
-    // Method to play the Do note
     playDoNote(frequency) {
-        if (!this.audioContext) {
-            this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        }
-
-        // Create an oscillator
+        if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
         const oscillator = this.audioContext.createOscillator();
         const gainNode = this.audioContext.createGain();
-
-        // Set the type and frequency
         oscillator.type = 'sine';
         oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-
-        // Create fade in/out to avoid clicks
         gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
         gainNode.gain.linearRampToValueAtTime(0.5, this.audioContext.currentTime + 0.1);
         gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 1.0);
-
-        // Connect and start
         oscillator.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
-
-        // Create a visual indicator that the note is playing
-        const noteIndicator = this.add.circle(
-            this.sys.game.config.width / 2,
-            this.sys.game.config.height * 0.25 + 80, // Positioned below the title
-            30,
-            0x555555 // Darker gray for contrast with cyan text
-        );
+        const noteIndicator = this.add.circle(this.sys.game.config.width / 2, this.sys.game.config.height * 0.25 + 80, 30, 0x555555);
         noteIndicator.setAlpha(0.8);
-        // Add text to the indicator
-        const noteText = this.add.text(
-            this.sys.game.config.width / 2,
-            this.sys.game.config.height * 0.25 + 80, // Positioned below the title
-            "Do", {
-                fontSize: '20px',
-                fontFamily: '"VT323", monospace',
-                fontStyle: 'normal',
-                color: '#FFFFFF',
-                align: 'center',
-                shadow: {
-                    offsetX: 1,
-                    offsetY: 1,
-                    color: '#39FF14',
-                    blur: 2,
-                    stroke: true,
-                    fill: true
-                }
+        const noteText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height * 0.25 + 80, "Do", {
+            fontSize: '20px',
+            fontFamily: '"VT323", monospace',
+            color: '#FFFFFF',
+            align: 'center',
+            shadow: {
+                offsetX: 1,
+                offsetY: 1,
+                color: '#39FF14',
+                blur: 2,
+                stroke: true,
+                fill: true
             }
-        );
+        });
         noteText.setOrigin(0.5);
-
-        // Create a pulsing effect
         this.tweens.add({
             targets: [noteIndicator],
             scale: {
@@ -1350,201 +987,263 @@ class StartScreen extends Phaser.Scene {
                 noteText.destroy();
             }
         });
-
-        // Start and stop the oscillator
         oscillator.start();
         oscillator.stop(this.audioContext.currentTime + 1.0);
     }
 }
+
 class GameScene extends Phaser.Scene {
     constructor() {
         super('GameScene');
-        this.instrument = 'Soprano'; // Default instrument
+        this.instrument = 'Soprano';
         this.audioContext = null;
         this.analyserNode = null;
         this.dataArray = null;
-        this.currentY = 0; // Smoothed Y position
-        this.targetY = 0; // Target Y based on pitch
+        this.currentY = 0;
+        this.targetY = 0;
         this.lowDoLogFreq = 0;
         this.highDoLogFreq = 0;
-        this.keySignatureDropdown = null; // Property to hold the dropdown
-        this.selectedKeySignature = 'C Major'; // Default key signature
-        // Default: Soprano C4 (261.63Hz) to C5 (523.25Hz)
-        // Frequencies for Do, Re, Mi, Fa, Sol, La, Ti, High Do (C4 to C5)
-        // Note: Order is High Do -> Low Do for mapping (index 0 = high)
-        this.vocalRangeFrequencies = [
-            523.25, // C5 (High Do)
-            466.16, // A#4/Bb4 (Ti - approx) - Using A# for simplicity, true B4 is 493.88
-            440.00, // A4 (La)
-            392.00, // G4 (Sol)
-            349.23, // F4 (Fa)
-            329.63, // E4 (Mi)
-            293.66, // D4 (Re)
-            261.63 // C4 (Low Do)
-        ];
-    }
-    preload() {
-        this.load.image('background', 'https://play.rosebud.ai/assets/Background.png?Mzty');
-        this.load.image('bird1', 'https://play.rosebud.ai/assets/Bird_01.png?5daF'); // Updated to new Bird_01 asset
-        this.load.image('bird2', 'https://play.rosebud.ai/assets/Bird_02.png?Z0Lm'); // Updated to new Bird_02 asset
-        this.load.image('bird3', 'https://play.rosebud.ai/assets/Bird_03.png?xLfa'); // Updated to new Bird_03 asset
-
-        // Set up variables for obstacle management
+        this.keySignatureDropdown = null;
+        this.selectedKeySignature = 'C Major';
+        this.displayMode = 'Solfege'; // 'Solfege' or 'Pitch'
+        this.displayModeButton = null;
+        this.displayModeText = null;
+        this.pitchNames = [];
+        this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
         this.obstacles = [];
-        this.obstacleTimer = null;
-        this.lastObstacleTime = 0;
-        this.obstacleSpeed = 3;
-        this.obstacleWidth = 60;
-
-        // Game difficulty progression parameters
+        this.baseGameWidth = 800; // Reference width for scaling
+        this.widthScaleFactor = 1; // Will be calculated in create
+        this.initialObstacleSpeed = 120; // pixels per second at baseGameWidth
+        this.maxObstacleSpeed = 300; // pixels per second at baseGameWidth
+        this.currentObstacleSpeed = this.initialObstacleSpeed;
+        this.obstacleWidth = 60; // Consider scaling this too if needed
         this.gameStartTime = 0;
-        this.difficultyIncreaseTime = 20000; // 20 seconds before difficulty increase starts
-        this.initialObstacleSpacing = 800; // Initial wide spacing between obstacles
-        this.minObstacleSpacing = 300; // Minimum spacing after difficulty increase
+        this.difficultyIncreaseTime = 20000;
+        this.initialObstacleSpacing = 400; // at baseGameWidth
+        this.minObstacleSpacing = 150; // at baseGameWidth
         this.currentObstacleSpacing = this.initialObstacleSpacing;
-
-        // Initial gaps for the obstacles (start with larger gaps)
-        this.initialMinHeight = 0.1; // 10% of screen height for initial bar height (smaller bars)
-        this.initialMaxHeight = 0.5; // 50% of screen height for initial bar height
-        this.finalMinHeight = 0.2; // 20% of screen height after difficulty increase
-        this.finalMaxHeight = 0.7; // 70% of screen height after difficulty increase
+        this.initialMinHeight = 0.1;
+        this.initialMaxHeight = 0.5;
+        this.finalMinHeight = 0.2;
+        this.finalMaxHeight = 0.7;
         this.currentMinHeight = this.initialMinHeight;
         this.currentMaxHeight = this.initialMaxHeight;
-        // Track last created obstacle type for alternating pattern
         this.lastObstacleFromTop = null;
-        // Game state tracking
         this.isGameOver = false;
         this.score = 0;
         this.scoreText = null;
-
-        // Load pipe asset for obstacles
-        this.load.image('pipe', 'https://play.rosebud.ai/assets/Pipe.png?2SXh'); // Latest Pipe URL
-        // Load GameOver asset
+        this.obstaclesGroup = null; // Added for grouping obstacles
+    }
+    preload() {
+        this.load.image('background', 'https://play.rosebud.ai/assets/Background.png?Mzty');
+        this.load.image('bird1', 'https://play.rosebud.ai/assets/Bird_01.png?5daF');
+        this.load.image('bird2', 'https://play.rosebud.ai/assets/Bird_02.png?Z0Lm');
+        this.load.image('bird3', 'https://play.rosebud.ai/assets/Bird_03.png?xLfa');
+        this.load.image('pipe', 'https://play.rosebud.ai/assets/Pipe.png?2SXh');
         this.load.image('gameOver', 'https://play.rosebud.ai/assets/GameOver.png?wADk');
-        this.load.image('musicNotes', 'https://play.rosebud.ai/assets/Music Notes.png?QW4u'); // Load music note asset
-        this.load.image('cloud', 'https://play.rosebud.ai/assets/Cloud.png?oeuQ'); // Load cloud asset
+        this.load.image('musicNotes', 'https://play.rosebud.ai/assets/Music Notes.png?QW4u');
+        this.load.image('cloud', 'https://play.rosebud.ai/assets/Cloud.png?oeuQ');
     }
     create(data) {
-        // Get the selected instrument if passed
+        this.isGameOver = false;
+        this.score = 0;
+        this.gameStartTime = this.time.now;
+        // Calculate scale factor based on actual game width vs base width
+        this.widthScaleFactor = this.sys.game.config.width / this.baseGameWidth;
+        // Apply scale factor to speed and spacing
+        this.initialObstacleSpeedScaled = this.initialObstacleSpeed * this.widthScaleFactor;
+        this.maxObstacleSpeedScaled = this.maxObstacleSpeed * this.widthScaleFactor;
+        this.currentObstacleSpeed = this.initialObstacleSpeedScaled;
+        this.initialObstacleSpacingScaled = this.initialObstacleSpacing * this.widthScaleFactor;
+        this.minObstacleSpacingScaled = this.minObstacleSpacing * this.widthScaleFactor;
+        this.currentObstacleSpacing = this.initialObstacleSpacingScaled;
+        this.currentMinHeight = this.initialMinHeight;
+        this.currentMaxHeight = this.initialMaxHeight;
+        this.lastObstacleFromTop = null;
+        this.hasPairedObstacles = false; // Reset this flag as well
         if (data && data.instrument) {
             this.instrument = data.instrument;
-            console.log(`Selected instrument: ${this.instrument}`);
-            // Adjust vocal range based on selected instrument
-            this.adjustVocalRange(this.instrument);
+            this.adjustVocalRange(this.instrument); // This might set a default key
         }
+        // Determine the key signature
+        let keyToUse;
         if (data && data.selectedKeySignature) {
-            this.selectedKeySignature = data.selectedKeySignature;
-            this.registry.set('selectedKeySignature', this.selectedKeySignature); // Ensure registry is also updated
-            console.log(`Game started/restarted with key signature: ${this.selectedKeySignature}`);
-            // Potentially adjust music logic based on key signature here if needed on create
+            // If a key signature is explicitly passed (e.g., from restart or StartScreen selection)
+            keyToUse = data.selectedKeySignature;
+        } else if (this.registry.get('userSelectedKeySignature')) {
+            // If user made a selection previously in the game
+            keyToUse = this.registry.get('userSelectedKeySignature');
         } else {
-            // If no key signature is passed (e.g., first game start), use default or from registry
-            this.selectedKeySignature = this.registry.get('selectedKeySignature') || 'C Major';
+            // Otherwise, default based on instrument or overall default
+            keyToUse = (this.instrument === 'Tenor') ? 'F Major' : 'C Major';
         }
-        // Start tracking game time for difficulty progression
-        this.gameStartTime = this.time.now;
-        // Create the background
+        this.selectedKeySignature = keyToUse;
+        this.registry.set('selectedKeySignature', this.selectedKeySignature); // Store the active key
+        // Destroy existing game objects if they exist from a previous run
+        if (this.bird) this.bird.destroy();
+        if (this.obstaclesGroup) {
+            // Ensure the group exists and has children before attempting to clear
+            if (this.obstaclesGroup.children && this.obstaclesGroup.children.size > 0) {
+                this.obstaclesGroup.clear(true, true);
+            }
+            this.obstaclesGroup.destroy();
+            this.obstaclesGroup = null;
+        }
+        this.obstaclesGroup = this.physics.add.staticGroup(); // Ensure group is created BEFORE use
+        if (this.scoreText) this.scoreText.destroy();
+        if (this.keySignatureDropdown) { // Check if it exists before trying to destroy
+            this.keySignatureDropdown.destroy(); // Use the new destroy method
+            this.keySignatureDropdown = null;
+        }
+        if (this.scoreTimer) this.scoreTimer.remove();
+        if (this.featherParticles) this.featherParticles.destroy();
+        if (this.musicNoteParticles) this.musicNoteParticles.destroy();
+        if (this.displayModeButton) this.displayModeButton.destroy();
+        if (this.displayModeText) this.displayModeText.destroy();
         this.background = new Background(this);
-        // Create the bird
-        this.bird = new Bird(this, 400, 300);
-        // Initialize bird's Y position tracking
+        this.generatePitchNames(); // Generate pitch names before updating background
+        this.background.updateTextDisplay(this.displayMode, this.pitchNames);
+        this.bird = new Bird(this, this.sys.game.config.width * 0.25, 150); // Adjusted initial Y position
         this.currentY = this.bird.y;
         this.targetY = this.bird.y;
-        // Calculate log frequencies for mapping pitch to height
         const solfegeLogFrequencies = this.vocalRangeFrequencies.map(freq => Math.log2(freq));
-        this.lowDoLogFreq = solfegeLogFrequencies[solfegeLogFrequencies.length - 1]; // Low Do
-        this.highDoLogFreq = solfegeLogFrequencies[0]; // High Do
-        // Calculate bar height for snapping obstacles
+        this.lowDoLogFreq = solfegeLogFrequencies[solfegeLogFrequencies.length - 1];
+        this.highDoLogFreq = solfegeLogFrequencies[0];
         this.barHeight = this.sys.game.config.height / 8;
-        // Create obstacles system
+        // this.obstaclesGroup is already reliably initialized earlier (around line 999)
+        this.obstacles = [];
         this.createObstacles();
-        // Create bird feather particles for collision effects
         this.createBirdParticles();
-        this.createMusicNoteParticles(); // Create the music note emitter
-        // Initialize audio input
-        this.initAudio();
-        // Set up collision detection
-        this.setupCollisions();
-        // Create score text display
-        this.createScoreText();
-        // Start the score timer
+        this.createMusicNoteParticles();
+        this.initAudio(); // Ensure audio is re-initialized
+        this.input.once('pointerdown', () => {
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                this.audioContext.resume();
+            }
+        }, this);
+        this.setupCollisions(); // Re-setup collisions for new bird and obstacles
+        this.createScoreText(); // Re-create score text
         this.scoreTimer = this.time.addEvent({
             delay: 1000,
             callback: this.incrementScore,
             callbackScope: this,
             loop: true
         });
-        // Create key signature dropdown
         const keySignatures = ['C Major', 'G Major', 'D Major', 'A Major', 'E Major', 'B Major', 'F Major'];
         this.keySignatureDropdown = new KeySignatureDropdown(
             this,
-            this.sys.game.config.width - 100, // Position top-right
-            30, // Y position
-            180, // Width
-            36, // Height (slightly smaller for pixel aesthetic)
+            this.sys.game.config.width - 100,
+            30,
+            180,
+            36,
             keySignatures,
-            this.selectedKeySignature, // Use current/default key signature for dropdown
-            (selectedKey) => {
-                this.handleKeySignatureChange(selectedKey);
-            }
+            this.selectedKeySignature, // This is the resolved key signature
+            (selectedKey) => this.handleKeySignatureChange(selectedKey)
         );
-        this.keySignatureDropdown.dropdownButton.setDepth(250); // Ensure dropdown is above score but below game over
+        // Ensure the dropdown visually reflects the selectedKeySignature
+        this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
+        this.keySignatureDropdown.dropdownButton.setDepth(250);
         this.keySignatureDropdown.dropdownText.setDepth(251);
         this.keySignatureDropdown.optionsContainer.setDepth(250);
+        this.createDisplayModeButton();
+    }
+    generatePitchNames() {
+        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        this.pitchNames = this.vocalRangeFrequencies.map(freq => {
+            if (freq <= 0) return "N/A";
+            const midiNum = 69 + 12 * Math.log2(freq / 440);
+            const noteIndex = Math.round(midiNum) % 12;
+            const octave = Math.floor(Math.round(midiNum) / 12) - 1;
+            return noteStrings[noteIndex] + octave;
+        }).reverse(); // Assuming vocalRangeFrequencies is high to low, reverse for display bottom to top
+    }
+    createDisplayModeButton() {
+        const buttonWidth = 180;
+        const buttonHeight = 36;
+        const buttonX = this.sys.game.config.width - 100; // Same X as dropdown
+        const buttonY = 30 + 36 + 10; // Below dropdown + spacing
+        this.displayModeButton = this.add.graphics();
+        this.displayModeButton.fillStyle(0x222222, 1);
+        this.displayModeButton.fillRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight);
+        this.displayModeButton.setDepth(250);
+        this.displayModeButton.setScrollFactor(0);
+        this.displayModeText = this.add.text(buttonX, buttonY, `Mode: ${this.displayMode}`, {
+            fontSize: '16px',
+            fontFamily: '"VT323", monospace',
+            color: '#FFFFFF',
+            align: 'center',
+            shadow: {
+                offsetX: 1,
+                offsetY: 1,
+                color: '#39FF14',
+                blur: 1,
+                stroke: true,
+                fill: true
+            }
+        });
+        this.displayModeText.setOrigin(0.5);
+        this.displayModeText.setDepth(251);
+        this.displayModeText.setScrollFactor(0);
+        const hitArea = this.add.rectangle(buttonX, buttonY, buttonWidth, buttonHeight)
+            .setInteractive({
+                useHandCursor: true
+            })
+            .on('pointerdown', () => {
+                this.displayMode = this.displayMode === 'Solfege' ? 'Pitch' : 'Solfege';
+                this.displayModeText.setText(`Mode: ${this.displayMode}`);
+                this.background.updateTextDisplay(this.displayMode, this.pitchNames);
+            });
+        hitArea.setOrigin(0.5);
+        hitArea.setScrollFactor(0);
+        hitArea.setAlpha(0.001); // Make it invisible but interactive
     }
     createObstacles() {
-        // Create initial obstacles
         const gameWidth = this.sys.game.config.width;
         const gameHeight = this.sys.game.config.height;
-
-        // Flag to track when we need to create a paired obstacle
         this.pairRequired = false;
-
-        // Create obstacles with initial wide spacing
-        const initialObstacles = 4;
-
+        const initialObstacles = 7; // Increased by roughly 30% (from 4 to 5)
+        this.obstacles = [];
         for (let i = 0; i < initialObstacles; i++) {
-            // Determine position based on spacing
-            const x = gameWidth + (i * this.initialObstacleSpacing);
-
-            // Apply the same gap logic as in reset() for initial obstacles
-            const minGap = 150; // Same minimum gap
-            const availableHeightForObstacle = gameHeight - minGap;
-            // Use initial height ranges, but clamp based on minGap
-            const minObstacleHeight = gameHeight * this.initialMinHeight;
-            const maxObstacleHeightAllowed = Math.min(gameHeight * this.initialMaxHeight, availableHeightForObstacle);
-            // Ensure min height doesn't exceed max allowed height
-            const clampedMinHeight = Math.min(minObstacleHeight, maxObstacleHeightAllowed);
-            // Calculate initial raw height, respecting the minGap constraint
-            const rawHeight = Phaser.Math.Between(clampedMinHeight, maxObstacleHeightAllowed);
-            // Snap the initial height to the nearest multiple of barHeight
-            const snappedHeight = Math.round(rawHeight / this.barHeight) * this.barHeight;
-            // Ensure the snapped height doesn't go below the minimum or above the maximum allowed
-            const obstacleHeight = Phaser.Math.Clamp(snappedHeight, clampedMinHeight, maxObstacleHeightAllowed);
-            // For initial obstacles, explicitly alternate top and bottom
-            const fromTop = i % 2 === 0;
-
-            const obstacle = new Obstacle(
-                this,
-                x,
-                0, // Y is set in configurePipe
-                this.obstacleWidth,
-                obstacleHeight, // Use the snapped height
-                this.obstacleSpeed,
-                this, // Pass the GameScene instance correctly
-                fromTop // Explicitly specify top/bottom alternating pattern
-            );
-
+            const x = gameWidth + (i * this.initialObstacleSpacingScaled);
+            // Determine if it's a cloud or a tree
+            // The Obstacle constructor will now enforce that 'pipe' is from bottom and 'cloud' is from top.
+            // So, we just need to decide if this obstacle *instance* should be a cloud or a pipe.
+            const isCloud = Math.random() < 0.4; // 40% chance for a cloud
+            let obstacleHeight;
+            let fromTopDetermination = isCloud; // True if cloud, false if pipe (tree)
+            if (isCloud) {
+                // Clouds: La (6th bar), Ti (7th bar), High Do (8th bar from bottom)
+                // Bar indices (0-7 from bottom): La=5, Ti=6, Do=7
+                // Height in terms of barHeight units from the top:
+                // For La (5th index from bottom, so 3rd from top for a top obstacle): (8 - 5) * barHeight = 3 * barHeight
+                // For Ti (6th index from bottom, so 2nd from top): (8 - 6) * barHeight = 2 * barHeight
+                // For High Do (7th index from bottom, so 1st from top): (8 - 7) * barHeight = 1 * barHeight
+                const cloudLevels = [1, 2]; // Corresponds to High Do, Ti heights from top. Max height ends at top of La bar.
+                obstacleHeight = cloudLevels[Math.floor(Math.random() * cloudLevels.length)] * this.barHeight;
+            } else { // It's a tree (pipe)
+                // Trees (pipes): Re(1), Mi(2), Fa(3), Sol(4) (0-indexed from bottom)
+                // Height in terms of barHeight units from the bottom:
+                const treeLevels = [2, 3, 4, 5];
+                obstacleHeight = treeLevels[Math.floor(Math.random() * treeLevels.length)] * this.barHeight;
+                // For pipes, y position in constructor doesn't matter as much as configurePipe will set it.
+            }
+            // The y position for pipes should be gameHeight, for clouds it's 0. The constructor handles this.
+            const yPos = fromTopDetermination ? 0 : this.sys.game.config.height;
+            // Obstacle speed is now directly in pixels per second, Obstacle class handles per-frame movement
+            const obstacleSpeed = fromTopDetermination ? this.currentObstacleSpeed * 1.2 : this.currentObstacleSpeed;
+            const obstacle = new Obstacle(this, x, yPos, this.obstacleWidth, obstacleHeight, obstacleSpeed, this, fromTopDetermination); // yPos is correctly set here
             this.obstacles.push(obstacle);
+            this.obstaclesGroup.add(obstacle); // The obstacle's body should be configured by its constructor and configurePipe
+            this.lastObstacleFromTop = fromTopDetermination; // Update for the next obstacle generation logic
+            if (!obstacle.body) {
+                console.error("Obstacle added to group WITHOUT a body:", obstacle.texture.key, "at x:", obstacle.x);
+            }
         }
     }
-
     createScoreText() {
-        // Score text style
-        const scoreStyle = {
+        this.scoreText = this.add.text(this.sys.game.config.width - 20, 20, 'Time: 0', {
             fontSize: '24px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             fill: '#FFFFFF',
             align: 'right',
             shadow: {
@@ -1555,27 +1254,17 @@ class GameScene extends Phaser.Scene {
                 stroke: true,
                 fill: true
             }
-        };
-
-        // Add score text to top-right corner
-        this.scoreText = this.add.text(
-            this.sys.game.config.width - 20,
-            20,
-            'Time: 0',
-            scoreStyle
-        );
-        this.scoreText.setOrigin(1, 0); // Align to top-right
-        this.scoreText.setDepth(100); // Ensure score is above other elements
+        });
+        this.scoreText.setOrigin(1, 0);
+        this.scoreText.setDepth(100);
+        this.scoreText.setScrollFactor(0);
     }
-
     incrementScore() {
         if (this.isGameOver) return;
         this.score++;
         this.scoreText.setText('Time: ' + this.score);
     }
-
     createBirdParticles() {
-        // Create feather particle emitter for collisions
         this.featherParticles = this.add.particles('bird1');
         this.featherEmitter = this.featherParticles.createEmitter({
             x: 0,
@@ -1596,17 +1285,15 @@ class GameScene extends Phaser.Scene {
                 min: 0,
                 max: 360
             },
-            tint: 0xFFFF00, // Yellow feathers
+            tint: 0xFFFF00,
             alpha: {
                 start: 1,
                 end: 0
             },
             lifespan: 1000,
             quantity: 30,
-            on: false // Start disabled
+            on: false
         });
-
-        // Create confetti emitter for game over
         this.confettiEmitter = this.featherParticles.createEmitter({
             x: this.sys.game.config.width / 2,
             y: this.sys.game.config.height / 2,
@@ -1626,114 +1313,110 @@ class GameScene extends Phaser.Scene {
                 min: 0,
                 max: 360
             },
-            tint: 0xFFFF00, // Match bird feather color (yellow)
+            tint: 0xFFFF00,
             alpha: {
                 start: 1,
                 end: 0
             },
             lifespan: 3000,
             quantity: 100,
-            frequency: -1, // Fire only on demand
+            frequency: -1,
             blendMode: 'ADD'
         });
     }
     createMusicNoteParticles() {
-        // Create music note particle emitter for pitch detection feedback
         this.musicNoteParticles = this.add.particles('musicNotes');
         this.musicNoteEmitter = this.musicNoteParticles.createEmitter({
-            // Emit from behind the bird (adjust offset as needed)
-            follow: this.bird,
+            follow: this.bird, // Bird's screen position will be stable
             followOffset: {
-                x: -30,
+                x: -30, // Offset from bird's screen position
                 y: 0
-            }, // Position behind the bird
+            },
+            scrollFactorX: 0, // Particles should also ignore camera scroll
+            scrollFactorY: 0,
             speed: {
                 min: 50,
                 max: 150
-            }, // Notes fly backwards
+            },
             angle: {
                 min: 160,
                 max: 200
-            }, // Angle pointing backwards
+            },
             scale: {
                 start: 0.08,
                 end: 0.01
-            }, // Start small, fade out
+            },
             rotate: {
                 min: -180,
                 max: 180
-            }, // Random rotation
+            },
             alpha: {
                 start: 0.9,
                 end: 0
-            }, // Fade out
+            },
             lifespan: {
-                min: 1000, // Increased min lifespan
-                max: 2000 // Increased max lifespan
-            }, // How long notes live
-            quantity: 1, // Emit one note at a time
-            frequency: 50, // Decreased frequency (more notes per second)
-            on: false, // Start disabled
-            blendMode: 'ADD' // Optional: 'ADD' blend mode for brighter notes
+                min: 1000,
+                max: 2000
+            },
+            quantity: 1,
+            frequency: 50,
+            on: false,
+            blendMode: 'ADD'
         });
-        this.musicNoteParticles.setDepth(5); // Set depth on the particle manager, not the emitter
+        this.musicNoteParticles.setDepth(5);
+        this.musicNoteParticles.setScrollFactor(0); // The particle manager itself
     }
     setupCollisions() {
-        // Set up collision handling between bird and obstacles
-        this.obstacles.forEach(obstacle => {
-            // Collider now targets the Obstacle instance directly
-            this.physics.add.collider(this.bird, obstacle, this.handleCollision, null, this);
+        if (!this.bird || !this.obstacles) {
+            console.error("Bird or obstacles array is missing!");
+            return;
+        }
+
+        this.obstacles.forEach((obstacle, i) => {
+            if (obstacle.body) {
+                this.physics.add.collider(
+                    this.bird,
+                    obstacle,
+                    this.handleCollision,
+                    null,
+                    this
+                );
+                console.log(`🔗 Collider registered for obstacle[${i}]`);
+            } else {
+                console.warn(`❌ obstacle[${i}] has no body; skipping collider.`);
+            }
         });
     }
-
     handleCollision(bird, obstacle) {
-        // Only trigger game over once
+        console.log("COLLISION DETECTED between Bird and Obstacle (texture:", obstacle.texture.key, ")");
+        console.log("Bird Body:", bird.body.x, bird.body.y, bird.body.width, bird.body.height, "enabled:", bird.body.enable);
+        console.log("Obstacle Body:", obstacle.body.x, obstacle.body.y, obstacle.body.width, obstacle.body.height, "enabled:", obstacle.body.enable, "pos:", obstacle.x, obstacle.y);
+        if (!obstacle.body || !obstacle.body.enable || !bird.body || !bird.body.enable) {
+            console.warn("Collision with an entity whose body is not valid or not enabled. Bird:", bird.body, "Obstacle:", obstacle.body);
+            return;
+        }
         if (this.isGameOver) return;
-
+        console.log("Processing Game Over logic due to collision.");
         this.isGameOver = true;
-
-        // Stop timer
         this.scoreTimer.remove();
-
-        // Create confetti explosion
-        this.confettiEmitter.explode(100, bird.x, bird.y);
-        // Stop bird movement and gravity
+        const explosionX = typeof bird.x === 'number' ? bird.x : this.sys.game.config.width / 2;
+        const explosionY = typeof bird.y === 'number' ? bird.y : this.sys.game.config.height / 2;
+        this.confettiEmitter.explode(100, explosionX, explosionY);
         bird.body.setAllowGravity(false);
-        bird.setVelocity(0);
+        bird.setVelocity(0, 0); // Set both X and Y velocity to 0
         bird.anims.stop();
-        // Stop obstacles
-        this.obstacles.forEach(obs => {
-            obs.speed = 0;
-        });
-        // Add screen shake effect
+        // No need to iterate and set speed for static obstacles unless they have other dynamic properties
         this.cameras.main.shake(300, 0.02);
-
-        // Hide bird
-        bird.setVisible(false);
-
-        // Display Game Over screen and final score
-        // Wait 1 second before showing Game Over screen
+        bird.setVisible(false); // Hide bird instead of destroying, allows for restart
         this.time.delayedCall(1000, this.displayGameOver, [], this);
     }
-
     displayGameOver() {
-        // Create a semi-transparent overlay
-        const overlay = this.add.rectangle(
-            this.sys.game.config.width / 2,
-            this.sys.game.config.height / 2,
-            this.sys.game.config.width,
-            this.sys.game.config.height,
-            0x000000
-        );
+        const overlay = this.add.rectangle(this.sys.game.config.width / 2, this.sys.game.config.height / 2, this.sys.game.config.width, this.sys.game.config.height, 0x000000);
         overlay.setAlpha(0.7);
         overlay.setDepth(200);
-
-        // Display Game Over image - REMOVED
-        // Display Final Score
-        const finalScoreStyle = {
+        const finalScoreText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height / 2 - 90, 'Final Time: ' + this.score + 's', {
             fontSize: '36px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             fill: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -1744,51 +1427,31 @@ class GameScene extends Phaser.Scene {
                 stroke: true,
                 fill: true
             }
-        };
-        const finalScoreText = this.add.text(
-            this.sys.game.config.width / 2,
-            this.sys.game.config.height / 2 - 90, // Further Adjusted Y position
-            'Final Time: ' + this.score + 's',
-            finalScoreStyle
-        );
+        });
         finalScoreText.setOrigin(0.5);
         finalScoreText.setDepth(201);
-        // --- Modern "Try Again" Button ---
         const retryButtonWidth = 180;
         const retryButtonHeight = 60;
         const retryButtonX = this.sys.game.config.width / 2;
-        const retryButtonY = this.sys.game.config.height / 2 + 0; // Further Adjusted Y position
-        // const retryCornerRadius = 15; // No rounded corners
+        const retryButtonY = this.sys.game.config.height / 2 + 0;
         const retryNormalColor = 0x333333;
         const retryHoverColor = 0x444444;
         const retryPressedColor = 0x222222;
         const retryGraphics = this.add.graphics();
         retryGraphics.setDepth(201);
-        const drawRetryButton = (color, shadowOffsetY = 3) => { // Reduced shadow offset
+        const drawRetryButton = (color, shadowOffsetY = 3) => {
             retryGraphics.clear();
-            // Shadow - sharp rectangle
             retryGraphics.fillStyle(0x000000, 0.4);
-            retryGraphics.fillRect(
-                retryButtonX - retryButtonWidth / 2 + shadowOffsetY,
-                retryButtonY - retryButtonHeight / 2 + shadowOffsetY,
-                retryButtonWidth, retryButtonHeight
-            );
-            // Main button - solid color
+            retryGraphics.fillRect(retryButtonX - retryButtonWidth / 2 + shadowOffsetY, retryButtonY - retryButtonHeight / 2 + shadowOffsetY, retryButtonWidth, retryButtonHeight);
             retryGraphics.fillStyle(color, 1);
-            retryGraphics.fillRect(
-                retryButtonX - retryButtonWidth / 2,
-                retryButtonY - retryButtonHeight / 2,
-                retryButtonWidth, retryButtonHeight
-            );
-            // Brighter, thicker border
-            retryGraphics.lineStyle(3, 0x00FF00, 1); // Thicker, brighter green border
-            retryGraphics.strokeRect(retryButtonX - retryButtonWidth / 2, retryButtonY - retryButtonHeight / 2, retryButtonWidth, retryButtonHeight);
+            retryGraphics.fillRect(retryButtonX - retryButtonWidth / 2, retryButtonY - retryButtonHeight / 2, retryButtonWidth, retryButtonHeight);
+            // retryGraphics.lineStyle(3, 0x00FF00, 1); // Removed line style
+            // retryGraphics.strokeRect(retryButtonX - retryButtonWidth / 2, retryButtonY - retryButtonHeight / 2, retryButtonWidth, retryButtonHeight); // Removed stroke
         };
-        drawRetryButton(retryNormalColor); // Initial draw
+        drawRetryButton(retryNormalColor);
         const retryText = this.add.text(retryButtonX, retryButtonY, 'Try Again', {
             fontSize: '20px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -1808,7 +1471,7 @@ class GameScene extends Phaser.Scene {
         retryHitArea.on('pointerover', () => drawRetryButton(retryHoverColor));
         retryHitArea.on('pointerout', () => drawRetryButton(retryNormalColor));
         retryHitArea.on('pointerdown', () => {
-            drawRetryButton(retryPressedColor, 2); // Pressed state
+            drawRetryButton(retryPressedColor, 2);
             this.tweens.add({
                 targets: [retryGraphics, retryText],
                 y: '+=2',
@@ -1818,48 +1481,38 @@ class GameScene extends Phaser.Scene {
             });
         });
         retryHitArea.on('pointerup', () => {
-            drawRetryButton(retryHoverColor); // Back to hover state if still over
+            drawRetryButton(retryHoverColor);
+            // Use the *actual* current key signature for the restart
+            const keySignatureForRestart = this.selectedKeySignature;
+            const doFrequency = this.getDoFrequencyForKey(keySignatureForRestart);
+            this.playDoNoteForKey(doFrequency);
             this.scene.restart({
                 instrument: this.instrument,
-                selectedKeySignature: this.selectedKeySignature
-            }); // Restart scene
+                selectedKeySignature: keySignatureForRestart // Pass the correct current key
+            });
         });
-        // --- Modern "Change Instrument" Button ---
         const changeButtonWidth = 250;
         const changeButtonHeight = 60;
         const changeButtonX = this.sys.game.config.width / 2;
-        const changeButtonY = this.sys.game.config.height / 2 + 70; // Further Adjusted Y position
-        // const changeCornerRadius = 15; // No rounded corners
+        const changeButtonY = this.sys.game.config.height / 2 + 70;
         const changeNormalColor = 0x333333;
         const changeHoverColor = 0x444444;
         const changePressedColor = 0x222222;
         const changeGraphics = this.add.graphics();
         changeGraphics.setDepth(201);
-        const drawChangeButton = (color, shadowOffsetY = 3) => { // Reduced shadow offset
+        const drawChangeButton = (color, shadowOffsetY = 3) => {
             changeGraphics.clear();
-            // Shadow - sharp rectangle
             changeGraphics.fillStyle(0x000000, 0.4);
-            changeGraphics.fillRect(
-                changeButtonX - changeButtonWidth / 2 + shadowOffsetY,
-                changeButtonY - changeButtonHeight / 2 + shadowOffsetY,
-                changeButtonWidth, changeButtonHeight
-            );
-            // Main button - solid color
+            changeGraphics.fillRect(changeButtonX - changeButtonWidth / 2 + shadowOffsetY, changeButtonY - changeButtonHeight / 2 + shadowOffsetY, changeButtonWidth, changeButtonHeight);
             changeGraphics.fillStyle(color, 1);
-            changeGraphics.fillRect(
-                changeButtonX - changeButtonWidth / 2,
-                changeButtonY - changeButtonHeight / 2,
-                changeButtonWidth, changeButtonHeight
-            );
-            // Brighter, thicker border
-            changeGraphics.lineStyle(3, 0x00FF00, 1); // Thicker, brighter green border
-            changeGraphics.strokeRect(changeButtonX - changeButtonWidth / 2, changeButtonY - changeButtonHeight / 2, changeButtonWidth, changeButtonHeight);
+            changeGraphics.fillRect(changeButtonX - changeButtonWidth / 2, changeButtonY - changeButtonHeight / 2, changeButtonWidth, changeButtonHeight);
+            // changeGraphics.lineStyle(3, 0x00FF00, 1); // Removed line style
+            // changeGraphics.strokeRect(changeButtonX - changeButtonWidth / 2, changeButtonY - changeButtonHeight / 2, changeButtonWidth, changeButtonHeight); // Removed stroke
         };
-        drawChangeButton(changeNormalColor); // Initial draw
+        drawChangeButton(changeNormalColor);
         const changeText = this.add.text(changeButtonX, changeButtonY, 'Change Instrument', {
             fontSize: '20px',
             fontFamily: '"VT323", monospace',
-            fontStyle: 'normal',
             color: '#FFFFFF',
             align: 'center',
             shadow: {
@@ -1879,7 +1532,7 @@ class GameScene extends Phaser.Scene {
         changeHitArea.on('pointerover', () => drawChangeButton(changeHoverColor));
         changeHitArea.on('pointerout', () => drawChangeButton(changeNormalColor));
         changeHitArea.on('pointerdown', () => {
-            drawChangeButton(changePressedColor, 2); // Pressed state
+            drawChangeButton(changePressedColor, 2);
             this.tweens.add({
                 targets: [changeGraphics, changeText],
                 y: '+=2',
@@ -1889,493 +1542,273 @@ class GameScene extends Phaser.Scene {
             });
         });
         changeHitArea.on('pointerup', () => {
-            drawChangeButton(changeHoverColor); // Back to hover state if still over
-            this.scene.start('StartScreen'); // Go back to start screen
+            drawChangeButton(changeHoverColor);
+            this.scene.start('StartScreen');
         });
     }
     adjustVocalRange(instrument) {
-        // Adjust frequency ranges based on selected instrument
         switch (instrument) {
             case 'Soprano':
-                this.vocalRangeFrequencies = [
-                    523.25, // C5 (High Do)
-                    466.16, // A#4/Bb4 (Ti)
-                    440.00, // A4 (La)
-                    392.00, // G4 (Sol)
-                    349.23, // F4 (Fa)
-                    329.63, // E4 (Mi)
-                    293.66, // D4 (Re)
-                    261.63 // C4 (Low Do)
-                ];
+                this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
                 break;
             case 'Alto':
-                this.vocalRangeFrequencies = [
-                    440.00, // A4 (High Do - approx)
-                    392.00, // G4 (Ti - approx)
-                    349.23, // F4 (La)
-                    329.63, // E4 (Sol)
-                    293.66, // D4 (Fa)
-                    261.63, // C4 (Mi)
-                    233.08, // Bb3 (Re)
-                    220.00 // A3 (Low Do - approx)
-                ];
+                this.vocalRangeFrequencies = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
                 break;
             case 'Tenor':
-                this.vocalRangeFrequencies = [
-                    349.23, // F4 (High Do - approx)
-                    329.63, // E4 (Ti)
-                    293.66, // D4 (La)
-                    261.63, // C4 (Sol)
-                    233.08, // Bb3 (Fa)
-                    220.00, // A3 (Mi)
-                    196.00, // G3 (Re)
-                    174.61 // F3 (Low Do - approx)
-                ];
+                this.vocalRangeFrequencies = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
                 break;
             case 'Baritone':
-                this.vocalRangeFrequencies = [
-                    293.66, // D4 (High Do - approx)
-                    261.63, // C4 (Ti)
-                    233.08, // Bb3 (La)
-                    220.00, // A3 (Sol)
-                    196.00, // G3 (Fa)
-                    174.61, // F3 (Mi)
-                    164.81, // E3 (Re)
-                    146.83 // D3 (Low Do - approx)
-                ];
+                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
                 break;
             case 'Bass':
-                this.vocalRangeFrequencies = [
-                    220.00, // A3 (High Do - approx)
-                    196.00, // G3 (Ti)
-                    174.61, // F3 (La)
-                    164.81, // E3 (Sol)
-                    146.83, // D3 (Fa)
-                    130.81, // C3 (Mi)
-                    116.54, // Bb2 (Re)
-                    110.00 // A2 (Low Do - approx)
-                ];
+                this.vocalRangeFrequencies = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
                 break;
             case 'Violin':
-                this.vocalRangeFrequencies = [
-                    1174.66, // D6 (High)
-                    987.77, // B5
-                    880.00, // A5
-                    783.99, // G5
-                    698.46, // F5
-                    659.26, // E5
-                    587.33, // D5
-                    523.25 // C5 (Low)
-                ];
-                break;
-            case 'Cello':
-                this.vocalRangeFrequencies = [
-                    293.66, // D4 (High)
-                    261.63, // C4
-                    233.08, // Bb3
-                    220.00, // A3
-                    196.00, // G3
-                    174.61, // F3
-                    164.81, // E3
-                    146.83 // D3 (Low)
-                ];
-                break;
-            case 'Flute':
-                this.vocalRangeFrequencies = [
-                    1396.91, // F6 (High)
-                    1174.66, // D6
-                    987.77, // B5
-                    880.00, // A5
-                    783.99, // G5
-                    698.46, // F5
-                    659.26, // E5
-                    587.33 // D5 (Low)
-                ];
-                break;
-            case 'Clarinet':
-                this.vocalRangeFrequencies = [
-                    698.46, // F5 (High)
-                    622.25, // Eb5
-                    523.25, // C5
-                    466.16, // Bb4
-                    415.30, // Ab4
-                    349.23, // F4
-                    311.13, // Eb4
-                    261.63 // C4 (Low)
-                ];
-                break;
-            case 'Trumpet':
-                this.vocalRangeFrequencies = [
-                    659.26, // E5 (High)
-                    587.33, // D5
-                    523.25, // C5
-                    466.16, // Bb4
-                    415.30, // Ab4
-                    369.99, // F#4
-                    329.63, // E4
-                    293.66 // D4 (Low)
-                ];
-                break;
-            case 'Guitar':
-                this.vocalRangeFrequencies = [
-                    392.00, // G4 (High)
-                    349.23, // F4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63, // C4
-                    246.94, // B3
-                    220.00, // A3
-                    196.00 // G3 (Low)
-                ];
-                break;
-            case 'Ukulele':
-                this.vocalRangeFrequencies = [
-                    392.00, // G4 (High)
-                    349.23, // F4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63, // C4
-                    246.94, // B3
-                    220.00, // A3
-                    196.00 // G3 (Low)
-                ];
-                break;
-            case 'Trombone':
-                this.vocalRangeFrequencies = [
-                    329.63, // E4 (High)
-                    293.66, // D4
-                    261.63, // C4
-                    233.08, // Bb3
-                    196.00, // G3
-                    174.61, // F3
-                    146.83, // D3
-                    130.81 // C3 (Low)
-                ];
-                break;
-            case 'Baritone Horn':
-                this.vocalRangeFrequencies = [
-                    293.66, // D4 (High)
-                    261.63, // C4
-                    233.08, // Bb3
-                    220.00, // A3
-                    196.00, // G3
-                    174.61, // F3
-                    155.56, // Eb3
-                    146.83 // D3 (Low)
-                ];
-                break;
-            case 'Tuba':
-                this.vocalRangeFrequencies = [
-                    196.00, // G3 (High)
-                    174.61, // F3
-                    164.81, // E3
-                    146.83, // D3
-                    130.81, // C3
-                    116.54, // Bb2
-                    98.00, // G2
-                    87.31 // F2 (Low)
-                ];
-                break;
-            case 'Soprano Saxophone':
-                this.vocalRangeFrequencies = [
-                    880.00, // A5 (High)
-                    783.99, // G5
-                    698.46, // F5
-                    659.26, // E5
-                    587.33, // D5
-                    523.25, // C5
-                    466.16, // Bb4
-                    415.30 // Ab4 (Low)
-                ];
-                break;
-            case 'Alto Saxophone':
-                this.vocalRangeFrequencies = [
-                    587.33, // D5 (High)
-                    523.25, // C5
-                    466.16, // Bb4
-                    415.30, // Ab4
-                    369.99, // F#4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63 // C4 (Low)
-                ];
-                break;
-            case 'Tenor Saxophone':
-                this.vocalRangeFrequencies = [
-                    392.00, // G4 (High)
-                    349.23, // F4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63, // C4
-                    233.08, // Bb3
-                    207.65, // Ab3
-                    196.00 // G3 (Low)
-                ];
-                break;
-            case 'Baritone Saxophone':
-                this.vocalRangeFrequencies = [
-                    261.63, // C4 (High)
-                    233.08, // Bb3
-                    220.00, // A3
-                    196.00, // G3
-                    174.61, // F3
-                    164.81, // E3
-                    146.83, // D3
-                    130.81 // C3 (Low)
-                ];
-                break;
-            case 'Oboe':
-                this.vocalRangeFrequencies = [
-                    880.00, // A5 (High)
-                    783.99, // G5
-                    698.46, // F5
-                    659.26, // E5
-                    587.33, // D5
-                    523.25, // C5
-                    466.16, // Bb4
-                    440.00 // A4 (Low)
-                ];
-                break;
-            case 'French Horn':
-                this.vocalRangeFrequencies = [
-                    587.33, // D5 (High)
-                    523.25, // C5
-                    466.16, // Bb4
-                    415.30, // Ab4
-                    369.99, // F#4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63 // C4 (Low)
-                ];
-                break;
-            case 'Bassoon':
-                this.vocalRangeFrequencies = [
-                    293.66, // D4 (High)
-                    261.63, // C4
-                    233.08, // Bb3
-                    196.00, // G3
-                    174.61, // F3
-                    146.83, // D3
-                    130.81, // C3
-                    116.54 // Bb2 (Low)
-                ];
+                this.vocalRangeFrequencies = [1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33, 523.25];
                 break;
             case 'Viola':
-                this.vocalRangeFrequencies = [
-                    659.26, // E5 (High)
-                    587.33, // D5
-                    523.25, // C5
-                    440.00, // A4
-                    392.00, // G4
-                    349.23, // F4
-                    329.63, // E4
-                    293.66 // D4 (Low)
-                ];
+                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 440.00, 392.00, 349.23, 329.63, 293.66];
+                break;
+            case 'Cello':
+                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
                 break;
             case 'Double Bass':
-                this.vocalRangeFrequencies = [
-                    233.08, // Bb3 (High)
-                    196.00, // G3
-                    174.61, // F3
-                    146.83, // D3
-                    130.81, // C3
-                    110.00, // A2
-                    98.00, // G2
-                    82.41 // E2 (Low)
-                ];
+                this.vocalRangeFrequencies = [233.08, 196.00, 174.61, 146.83, 130.81, 110.00, 98.00, 82.41];
+                break;
+            case 'Flute':
+                this.vocalRangeFrequencies = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
+                break;
+            case 'Clarinet':
+                this.vocalRangeFrequencies = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
+                break;
+            case 'Oboe':
+                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 440.00];
+                break;
+            case 'Bassoon':
+                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81, 116.54];
+                break;
+            case 'Trumpet':
+                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66];
+                break;
+            case 'French Horn':
+                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
+                break;
+            case 'Trombone':
+                this.vocalRangeFrequencies = [329.63, 293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81];
+                break;
+            case 'Baritone Horn':
+                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 155.56, 146.83];
+                break;
+            case 'Tuba':
+                this.vocalRangeFrequencies = [196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 98.00, 87.31];
+                break;
+            case 'Soprano Saxophone':
+                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 415.30];
+                break;
+            case 'Alto Saxophone':
+                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
+                break;
+            case 'Tenor Saxophone':
+                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 207.65, 196.00];
+                break;
+            case 'Baritone Saxophone':
+                this.vocalRangeFrequencies = [261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83, 130.81];
+                break;
+            case 'Guitar':
+                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
+                break;
+            case 'Ukulele':
+                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
                 break;
             case 'Piano':
-                this.vocalRangeFrequencies = [
-                    523.25, // C5 (High)
-                    440.00, // A4
-                    392.00, // G4
-                    349.23, // F4
-                    329.63, // E4
-                    293.66, // D4
-                    261.63, // C4
-                    220.00 // A3 (Low)
-                ];
+                this.vocalRangeFrequencies = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
                 break;
             default:
-                // Use soprano range as default
                 break;
         }
+        this.generatePitchNames();
+        // Determine default key for the new instrument
+        let defaultKeyForNewInstrument = 'C Major';
+        if (instrument === 'Tenor') {
+            defaultKeyForNewInstrument = 'F Major';
+        }
+        // Add other instrument-specific key signature defaults here
+        // Update selectedKeySignature ONLY if the user hasn't picked one manually yet
+        // OR if the game logic dictates the key should always reset with instrument.
+        // For now, let's assume if user picked one, it persists unless instrument change *forces* a key.
+        // If instrument change *should* override user choice, then uncomment next lines:
+        // this.selectedKeySignature = defaultKeyForNewInstrument;
+        // this.registry.set('selectedKeySignature', this.selectedKeySignature);
+        // if (this.keySignatureDropdown) {
+        //     this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
+        // }
+        if (this.background) {
+            this.background.updateTextDisplay(this.displayMode, this.pitchNames);
+        }
     }
-    initAudio() {
-        navigator.mediaDevices.getUserMedia({
+    async initAudio() {
+        try {
+            // Stop and close any existing audio context and stream
+            if (this.mediaStream) {
+                this.mediaStream.getTracks().forEach(track => track.stop());
+                this.mediaStream = null;
+            }
+            if (this.audioContext) {
+                if (this.audioContext.state !== 'closed') {
+                    await this.audioContext.close();
+                }
+                this.audioContext = null;
+                this.analyserNode = null;
+                this.dataArray = null;
+            }
+            this.mediaStream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
                 video: false
-            })
-            .then(stream => {
-                this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-                this.analyserNode = this.audioContext.createAnalyser();
-                const source = this.audioContext.createMediaStreamSource(stream);
-                source.connect(this.analyserNode);
-                this.analyserNode.fftSize = 2048; // Standard FFT size for pitch detection
-                this.dataArray = new Uint8Array(this.analyserNode.fftSize);
-                console.log("Microphone access granted.");
-            })
-            .catch(err => {
-                console.error('ERROR accessing microphone:', err);
-                alert('Microphone access denied. Please allow microphone access to play.');
             });
+            this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
+
+            // Check if context is suspended (usually due to browser auto-play policies)
+            if (this.audioContext.state === 'suspended') {
+                console.log("AudioContext is suspended. Waiting for user interaction to resume.");
+                // We already have a pointerdown listener in create() to resume it.
+            }
+            this.analyserNode = this.audioContext.createAnalyser();
+            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+            source.connect(this.analyserNode);
+            this.analyserNode.fftSize = 2048; // Standard FFT size for pitch detection
+            this.dataArray = new Uint8Array(this.analyserNode.fftSize); // For time-domain data
+            console.log("Audio initialized successfully.");
+        } catch (err) {
+            console.error('Error initializing audio:', err);
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                alert('Microphone access denied. Please allow microphone access to play.');
+            } else {
+                alert('Could not initialize audio. Please ensure a microphone is connected and permissions are granted.');
+            }
+        }
     }
     update() {
-        // If game is over, do nothing in update loop
         if (this.isGameOver) {
-            if (this.musicNoteEmitter && this.musicNoteEmitter.on) {
-                this.musicNoteEmitter.stop(); // Ensure emitter is off on game over
-            }
+            if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
             return;
         }
-        // Only process audio if initialized and game is running
         if (this.audioContext && this.analyserNode && this.dataArray) {
             this.analyserNode.getByteTimeDomainData(this.dataArray);
-            // Calculate RMS for volume
             let sumOfSquares = 0;
             for (let i = 0; i < this.dataArray.length; i++) {
-                let val = (this.dataArray[i] - 128) / 128; // Normalize buffer values to -1 to 1
+                let val = (this.dataArray[i] - 128) / 128;
                 sumOfSquares += val * val;
             }
             let rms = Math.sqrt(sumOfSquares / this.dataArray.length);
             let pitch = this.autoCorrelate(this.dataArray, this.audioContext.sampleRate);
-            if (pitch > 0) { // Pitch detected
-                this.bird.body.setAllowGravity(false); // Disable gravity while singing
-                // Adjust music note emitter based on volume (RMS)
+            if (pitch > 0) {
+                this.bird.body.setAllowGravity(false);
                 if (this.musicNoteEmitter) {
-                    if (!this.musicNoteEmitter.on) {
-                        this.musicNoteEmitter.start();
-                    }
-                    // Map RMS (0 to ~0.5 typically) to frequency (e.g., 80ms down to 20ms)
-                    // Clamp RMS to a reasonable range (e.g., 0.02 to 0.3) to avoid extreme values
+                    if (!this.musicNoteEmitter.on) this.musicNoteEmitter.start();
                     const clampedRms = Phaser.Math.Clamp(rms, 0.02, 0.3);
-                    const minFreq = 20; // Fastest emission frequency
-                    const maxFreq = 100; // Slowest emission frequency
+                    const minFreq = 20;
+                    const maxFreq = 100;
                     const freqRange = maxFreq - minFreq;
-                    // Higher RMS means lower frequency (faster emission)
                     const targetFreq = maxFreq - ((clampedRms - 0.02) / (0.3 - 0.02)) * freqRange;
-                    this.musicNoteEmitter.frequency = targetFreq; // Set frequency directly
-                    // Optional: Map RMS to quantity (e.g., 1 to 3)
+                    this.musicNoteEmitter.frequency = targetFreq;
                     const minQuantity = 1;
                     const maxQuantity = 3;
                     const quantityRange = maxQuantity - minQuantity;
                     let targetQuantity = minQuantity + ((clampedRms - 0.02) / (0.3 - 0.02)) * quantityRange;
                     targetQuantity = Math.round(targetQuantity);
-                    // Ensure quantity is a valid number and not less than 0
-                    if (typeof targetQuantity === 'number' && targetQuantity >= 0) {
-                        this.musicNoteEmitter.setQuantity(targetQuantity);
-                    } else {
-                        this.musicNoteEmitter.setQuantity(minQuantity); // Default to min if calculation is invalid
-                    }
+                    this.musicNoteEmitter.setQuantity(typeof targetQuantity === 'number' && targetQuantity >= 0 ? targetQuantity : minQuantity);
                 }
                 let logPitch = Math.log2(pitch);
-                // Find the closest solfege note to the detected pitch
                 let closestNoteIndex = this.findClosestNoteIndex(pitch);
-                // Get game height for calculating position
                 const gameHeight = this.sys.game.config.height;
-                // Calculate if the pitch is close enough to snap to the center of a note
-                const isCloseToNote = this.isPitchWithinTolerance(pitch, closestNoteIndex, 0.25); // 25% tolerance
-                // Get the log frequencies for the highest and lowest notes
-                const highestLogFreq = Math.log2(this.vocalRangeFrequencies[0]);
-                const lowestLogFreq = Math.log2(this.vocalRangeFrequencies[7]);
-                // Calculate the bar height (each of the 8 equal bars)
-                const barHeight = gameHeight / 8;
-                // Set target Y position
+                const isCloseToNote = this.isPitchWithinTolerance(pitch, closestNoteIndex, 0.25); // 0.25 semitone tolerance
+                const highestLogFreq = Math.log2(this.vocalRangeFrequencies[0]); // Highest note (Do8)
+                const lowestLogFreq = Math.log2(this.vocalRangeFrequencies[this.vocalRangeFrequencies.length - 1]); // Lowest note (Do7)
+                const barHeight = gameHeight / 8; // Each solfege bar height
                 if (isCloseToNote) {
-                    // If within tolerance, snap to the center of the note's bar
-                    // Note: index 0 = High Do (top bar), 7 = Low Do (bottom bar)
+                    // Snap to the center of the solfege bar
                     this.targetY = (closestNoteIndex + 0.5) * barHeight;
                 } else {
-                    // If not close enough to a note, use continuous positioning
-                    // Calculate relative position (0 = highest note, 1 = lowest note)
-                    let relativePosition;
-                    if (logPitch >= highestLogFreq) {
-                        relativePosition = 0;
-                    } else if (logPitch <= lowestLogFreq) {
-                        relativePosition = 1;
-                    } else {
-                        relativePosition = (logPitch - highestLogFreq) / (lowestLogFreq - highestLogFreq);
-                    }
-                    // Convert to screen coordinates
-                    const topPadding = 0; // No padding needed since we're using the full 8 bars
-                    const bottomPadding = 0;
-                    const playableHeight = gameHeight - topPadding - bottomPadding;
-                    this.targetY = topPadding + (relativePosition * playableHeight);
+                    // If not close to a specific note, interpolate position within the full vocal range
+                    // Ensure logPitch is clamped within the defined vocal range for interpolation
+                    const clampedLogPitch = Phaser.Math.Clamp(logPitch, lowestLogFreq, highestLogFreq);
+                    let relativePosition = (clampedLogPitch - highestLogFreq) / (lowestLogFreq - highestLogFreq);
+                    // The relativePosition will be 0 for highest note and 1 for lowest note.
+                    // Higher pitch (closer to highestLogFreq) means smaller relativePosition, so closer to top of screen.
+                    // Lower pitch (closer to lowestLogFreq) means larger relativePosition, so closer to bottom of screen.
+                    this.targetY = relativePosition * gameHeight;
                 }
-                // Smooth the movement: currentY moves towards targetY
-                this.currentY += (this.targetY - this.currentY) * 0.1; // Adjust 0.1 for more/less smoothing
-                // Apply the smoothed position, clamping to screen bounds
-                this.bird.y = Phaser.Math.Clamp(
-                    this.currentY,
-                    this.bird.displayHeight / 2, // Top bound
-                    this.sys.game.config.height - this.bird.displayHeight / 2 // Bottom bound
-                );
-                this.bird.setVelocityY(0); // Stop vertical velocity from gravity accumulation
-            } else { // No pitch detected or pitch too low/high
-                this.bird.body.setAllowGravity(true); // Re-enable gravity
-                // Stop music note emitter if it exists and is currently on
-                if (this.musicNoteEmitter && this.musicNoteEmitter.on) {
-                    this.musicNoteEmitter.stop();
-                }
+                // Smoothly move the bird towards the targetY
+                this.currentY += (this.targetY - this.currentY) * 0.1; // Adjust 0.1 for faster/slower smoothing
+                this.bird.y = Phaser.Math.Clamp(this.currentY, this.bird.displayHeight / 2, gameHeight - this.bird.displayHeight / 2);
+                this.bird.setVelocityY(0); // Override gravity while singing
+            } else {
+                this.bird.body.setAllowGravity(true);
+                if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
             }
         } else {
-            // Ensure gravity is on if audio isn't ready
             this.bird.body.setAllowGravity(true);
-            // Stop music note emitter if it exists and is currently on
-            if (this.musicNoteEmitter && this.musicNoteEmitter.on) {
-                this.musicNoteEmitter.stop();
-            }
+            if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
         }
-
-        // Update obstacles
+        // Obstacles are static, their update method might not do much anymore regarding movement.
+        // If obstacles need to be recycled, a different mechanism is needed.
+        // this.obstacles.forEach(obstacle => obstacle.update());
+        // Instead of obstacles moving, we can move the camera
+        // This gives the illusion of the bird moving forward.
+        // Let's define a scroll speed.
+        // === OBSTACLE MOVEMENT & RECYCLING ===
+        const deltaTime = this.sys.game.loop.delta / 1000; // Time in seconds since last frame
         this.obstacles.forEach(obstacle => {
-            obstacle.update();
+            // 1) slide it left by its current speed (pixels per second) * deltaTime
+            obstacle.x -= obstacle.speed * deltaTime; // obstacle.speed is set in Obstacle constructor and reset
+            // 2) sync the physics body to the new position
+            if (obstacle.body) { // Check if body exists
+                obstacle.body.updateFromGameObject();
+            }
+            // 3) if it’s off the left edge, recycle it to the right
+            if (obstacle.x < -obstacle.displayWidth) {
+                // obstacle.reset() will internally calculate the farthestX and set the new position.
+                // So, no need to calculate farthestX or set obstacle.x here explicitly.
+                obstacle.reset(); // recalc height & flip top/bottom, and repositions
+                if (obstacle.body) { // Check if body exists after reset
+                    obstacle.body.updateFromGameObject(); // Ensure physics body is synced after reset
+                }
+            }
         });
-
-        // Update game difficulty based on elapsed time
         this.updateDifficulty();
     }
-
-    updateDifficulty() {
-        // Calculate elapsed time
-        const elapsedTime = this.time.now - this.gameStartTime;
-        // Only start increasing difficulty after the set time
-        if (elapsedTime > this.difficultyIncreaseTime) {
-            // Calculate progress factor (0 to 1) over the next 40 seconds after initial delay
-            // This creates a 60-second total progression curve
-            const progressFactor = Math.min(1, (elapsedTime - this.difficultyIncreaseTime) / 40000);
-            // Gradually decrease spacing between obstacles (making them more frequent)
-            this.currentObstacleSpacing = this.initialObstacleSpacing -
-                (progressFactor * (this.initialObstacleSpacing - this.minObstacleSpacing));
-            // Gradually increase obstacle heights (making gaps smaller)
-            this.currentMinHeight = this.initialMinHeight +
-                (progressFactor * (this.finalMinHeight - this.initialMinHeight));
-            this.currentMaxHeight = this.initialMaxHeight +
-                (progressFactor * (this.finalMaxHeight - this.initialMaxHeight));
-
-            // Check for creating paired obstacles
-            if (elapsedTime > this.difficultyIncreaseTime && !this.hasPairedObstacles) {
-                // The reset method will now handle creating top and bottom pairs
-                this.hasPairedObstacles = true;
+    getFarthestObstacleX() {
+        let farthestX = 0;
+        this.obstaclesGroup.getChildren().forEach(obstacle => {
+            if (obstacle.x > farthestX) {
+                farthestX = obstacle.x;
             }
+        });
+        return farthestX;
+    }
+    updateDifficulty() {
+        const elapsedTime = this.time.now - this.gameStartTime;
+        if (elapsedTime > this.difficultyIncreaseTime) {
+            const progressFactor = Math.min(1, (elapsedTime - this.difficultyIncreaseTime) / 40000); // 40 seconds to reach max difficulty
+            this.currentObstacleSpacing = this.initialObstacleSpacingScaled - (progressFactor * (this.initialObstacleSpacingScaled - this.minObstacleSpacingScaled));
+            this.currentMinHeight = this.initialMinHeight + (progressFactor * (this.finalMinHeight - this.initialMinHeight));
+            this.currentMaxHeight = this.initialMaxHeight + (progressFactor * (this.finalMaxHeight - this.initialMaxHeight));
+            this.currentObstacleSpeed = this.initialObstacleSpeedScaled + (progressFactor * (this.maxObstacleSpeedScaled - this.initialObstacleSpeedScaled));
+            if (elapsedTime > this.difficultyIncreaseTime && !this.hasPairedObstacles) this.hasPairedObstacles = true;
         }
     }
-    // Pitch detection using auto-correlation (from provided example)
     autoCorrelate(buffer, sampleRate) {
         let SIZE = buffer.length;
         let sumOfSquares = 0;
         for (let i = 0; i < SIZE; i++) {
-            let val = (buffer[i] - 128) / 128; // Normalize buffer values to -1 to 1
+            let val = (buffer[i] - 128) / 128;
             sumOfSquares += val * val;
         }
         let rms = Math.sqrt(sumOfSquares / SIZE);
-        if (rms < 0.01) { // Not enough signal volume
-            return -1;
-        }
+        if (rms < 0.01) return -1;
         let r1 = 0,
             r2 = SIZE - 1,
             threshold = 0.2;
-        // Simple trim: find first/last index above threshold
         for (let i = 0; i < SIZE / 2; i++) {
             if (Math.abs((buffer[i] - 128) / 128) > threshold) {
                 r1 = i;
@@ -2388,54 +1821,39 @@ class GameScene extends Phaser.Scene {
                 break;
             }
         }
-        buffer = buffer.slice(r1, r2); // Use the trimmed section
+        buffer = buffer.slice(r1, r2);
         SIZE = buffer.length;
         if (SIZE < 2) return -1;
         let c = new Array(SIZE).fill(0);
-        // Autocorrelation calculation
         for (let i = 0; i < SIZE; i++) {
             for (let j = 0; j < SIZE - i; j++) {
-                c[i] = c[i] + ((buffer[j] - 128) / 128) * ((buffer[j + i] - 128) / 128);
+                c[i] += ((buffer[j] - 128) / 128) * ((buffer[j + i] - 128) / 128);
             }
         }
-        // Find the first peak (fundamental frequency lag)
         let d = 0;
-        while (d < c.length - 1 && c[d] > c[d + 1]) {
-            d++;
-        } // Find first minimum
+        while (d < c.length - 1 && c[d] > c[d + 1]) d++;
         let maxval = -1,
             maxpos = -1;
-        for (let i = d; i < SIZE; i++) { // Find peak after first minimum
+        for (let i = d; i < SIZE; i++) {
             if (c[i] > maxval) {
                 maxval = c[i];
                 maxpos = i;
             }
         }
-        if (maxpos === -1 || maxpos >= SIZE - 1) return -1; // No clear peak found
+        if (maxpos === -1 || maxpos >= SIZE - 1) return -1;
         let T0 = maxpos;
-        // Parabolic interpolation for better accuracy
         let x1 = c[T0 - 1],
             x2 = c[T0],
             x3 = c[T0 + 1];
         let a = (x1 + x3 - 2 * x2) / 2;
         let b = (x3 - x1) / 2;
-        if (a !== 0) {
-            T0 = T0 - b / (2 * a);
-        }
-        if (T0 === 0) return -1; // Avoid division by zero
+        if (a !== 0) T0 = T0 - b / (2 * a);
+        if (T0 === 0) return -1;
         return sampleRate / T0;
     }
-
-    // Helper method to find the closest solfege note index and show note information
     findClosestNoteIndex(pitch) {
-        // Note names including sharps/flats (semitones)
-        const solfegeNames = ['High Do', 'Ti', 'La', 'Sol', 'Fa', 'Mi', 'Re', 'Low Do'];
-        const chromaticNames = ['C', 'B', 'A#', 'A', 'G#', 'G', 'F#', 'F', 'E', 'D#', 'D', 'C#', 'C'];
-
-        // Convert frequencies to logarithmic scale for better comparison
         const logPitch = Math.log2(pitch);
         const logFreqs = this.vocalRangeFrequencies.map(f => Math.log2(f));
-        // Find the solfege note with the closest frequency to the detected pitch
         let closestIndex = 0;
         let smallestDiff = Math.abs(logPitch - logFreqs[0]);
         for (let i = 1; i < logFreqs.length; i++) {
@@ -2445,125 +1863,99 @@ class GameScene extends Phaser.Scene {
                 closestIndex = i;
             }
         }
-
-        // Calculate how close we are to a semitone between main notes
-        if (closestIndex < logFreqs.length - 1) {
-            const lowerNote = logFreqs[closestIndex + 1]; // Lower in pitch = higher index
-            const higherNote = logFreqs[closestIndex]; // Higher in pitch = lower index
-
-            // Determine if we're closer to a semitone between the two notes
-            const semitonePosition = (logPitch - lowerNote) / (higherNote - lowerNote);
-
-            // If close to a quarter, half, or three-quarter position between notes
-            // We could show what semitone we're on (optional)
-            if (Math.abs(semitonePosition - 0.5) < 0.1) {
-                // We're close to the semitone between these notes
-                // console.log(`Close to semitone between ${solfegeNames[closestIndex+1]} and ${solfegeNames[closestIndex]}`);
-            }
-        }
-
-        // For now, still return the closest main note index for other game purposes
         return closestIndex;
     }
-
-    // Check if a pitch is within tolerance of a specific note
     isPitchWithinTolerance(pitch, noteIndex, tolerancePercent) {
-        // Get the target frequency for this note
         const targetFreq = this.vocalRangeFrequencies[noteIndex];
-
-        // Calculate the acceptable range (±tolerancePercent)
         const lowerBound = targetFreq * (1 - tolerancePercent);
         const upperBound = targetFreq * (1 + tolerancePercent);
-
-        // Check if the pitch is within bounds
         return (pitch >= lowerBound && pitch <= upperBound);
     }
-    // Method to get the 'Do' (lowest note) frequency for an instrument/key
     getDoFrequencyForKey(keySignature) {
-        // Get the appropriate frequency array for the instrument/key
-        // This is a simplified mapping. You'll need to define actual frequencies for each key.
-        // For now, let's map key signatures to instrument "Do" notes as a placeholder.
         let freqArray;
         switch (keySignature) {
-            case 'C Major': // Soprano Do
+            case 'C Major':
                 freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
                 break;
-            case 'G Major': // Alto Do (approx)
+            case 'G Major':
                 freqArray = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
                 break;
-            case 'D Major': // Tenor Do (approx)
+            case 'D Major':
                 freqArray = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
                 break;
-            case 'A Major': // Baritone Do (approx)
+            case 'A Major':
                 freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
                 break;
-            case 'E Major': // Bass Do (approx)
+            case 'E Major':
                 freqArray = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
                 break;
-            case 'B Major': // Using Flute's D5 as a stand-in, higher pitch
+            case 'B Major':
                 freqArray = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
                 break;
-            case 'F Major': // Using Clarinet's C4 as a stand-in
+            case 'F Major':
                 freqArray = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
                 break;
-            default: // Default to C Major / Soprano Do
+            default:
                 freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
         }
-        return freqArray[7]; // Return the lowest Do frequency
+        return freqArray[7];
     }
-    // Method to play the Do note
     playDoNoteForKey(frequency) {
-        if (!this.audioContext) {
-            // If audio context isn't initialized from microphone, create a new one
-            this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        }
-        if (!this.audioContext) return; // Still no audio context, can't play
+        if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
+        if (!this.audioContext) return;
         const oscillator = this.audioContext.createOscillator();
         const gainNode = this.audioContext.createGain();
         oscillator.type = 'sine';
         oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
         gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0.5, this.audioContext.currentTime + 0.05); // Faster fade in
-        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.5); // Shorter note duration
+        gainNode.gain.linearRampToValueAtTime(0.5, this.audioContext.currentTime + 0.05);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.5);
         oscillator.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
         oscillator.start();
-        oscillator.stop(this.audioContext.currentTime + 0.5); // Stop after 0.5 seconds
+        oscillator.stop(this.audioContext.currentTime + 0.5);
     }
     handleKeySignatureChange(selectedKey) {
-        console.log("Key signature changed to:", selectedKey);
-        this.registry.set('selectedKeySignature', selectedKey);
+        this.selectedKeySignature = selectedKey; // Update the scene's current key
+        this.registry.set('selectedKeySignature', selectedKey); // Persist for game overs/restarts
+        this.registry.set('userSelectedKeySignature', selectedKey); // Mark that user made a choice
         const doFrequency = this.getDoFrequencyForKey(selectedKey);
         this.playDoNoteForKey(doFrequency);
-        // Restart the game, passing the current instrument and new key signature
-        this.time.delayedCall(500, () => { // Delay restart slightly to allow sound to play
+        // It might be better to just update the vocal range and background
+        // rather than a full scene restart, unless necessary for other reasons.
+        // For now, keeping restart as it might re-initialize other key-dependent things.
+        this.time.delayedCall(500, () => {
             this.scene.restart({
                 instrument: this.instrument,
-                selectedKeySignature: selectedKey
+                selectedKeySignature: selectedKey // Pass the newly selected key
             });
         }, [], this);
     }
 }
+
 const config = {
     type: Phaser.AUTO,
     parent: 'renderDiv',
-    resolution: window.devicePixelRatio || 1, // Use device pixel ratio for sharpness
+    resolution: window.devicePixelRatio || 1,
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 800, // Define the base logical width of your game
-        height: 600, // Define the base logical height of your game
-        parent: 'renderDiv', // Explicitly ensure it's targeting your div
-        zoom: 1 // Ensure no default zoom is applied, FIT will handle scaling
+        width: 800,
+        height: 600,
+        parent: 'renderDiv',
+        zoom: 1
     },
     scene: [StartScreen, GameScene],
     physics: {
         default: 'arcade',
         arcade: {
             gravity: {
-                y: 600
+                y: 600 // Base gravity, bird movement primarily pitch-controlled
             },
-            debug: false
+            debug: false,
+            // Consider enabling timeScale for physics if direct speed manipulation isn't enough,
+            // but for Flappy Bird style, direct speed control is usually better.
+            // timeScale: 1 // Default is 1. Adjusting this can slow down or speed up all physics.
         }
     },
     render: {
