@@ -1339,11 +1339,11 @@ class GameScene extends Phaser.Scene {
         }
     }
     createScoreText() {
-        this.scoreText = this.add.text(20, 20, 'Time: 0', {
+        this.scoreText = this.add.text(this.sys.game.config.width / 2, 12, 'Time: 0', {
             fontSize: '24px',
             fontFamily: '"VT323", monospace',
             fill: '#FFFFFF',
-            align: 'left',
+            align: 'center',
             shadow: {
                 offsetX: 1,
                 offsetY: 1,
@@ -1353,7 +1353,7 @@ class GameScene extends Phaser.Scene {
                 fill: true
             }
         });
-        this.scoreText.setOrigin(0, 0);
+        this.scoreText.setOrigin(0.5, 0);
         this.scoreText.setDepth(100);
         this.scoreText.setScrollFactor(0);
     }
