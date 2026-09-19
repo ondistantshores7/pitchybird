@@ -1,376 +1,639 @@
-// Dynamically load the VT323 font from Google Fonts
-const link = document.createElement('link');
-link.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
-link.rel = 'stylesheet';
-document.head.appendChild(link);
+// Pitchy Bird — Flappy Bird, but you sing (or play) the pitch to fly.
+// Local Phaser 3.55 is loaded by index.html before this file.
+
+const GAME_WIDTH = 800;
+const GAME_HEIGHT = 600;
+const BAR_COUNT = 8;
+const HIGH_SCORE_KEY = 'pitchyBirdHighScores';
+const SETTINGS_KEY = 'pitchyBirdSettings';
+
+const SOLFEGE_LOW_TO_HIGH = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
+const SOLFEGE_HIGH_TO_LOW = ['Do', 'Ti', 'La', 'Sol', 'Fa', 'Mi', 'Re', 'Do'];
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const MAJOR_INTERVALS_UP = [0, 2, 4, 5, 7, 9, 11, 12];
+const KEYBOARD_LOW_TO_HIGH = ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K'];
+
+const BAR_COLORS = [
+    0xFF5555, // Low Do
+    0xFFBF80, // Re
+    0xFFEF80, // Mi
+    0x80FF97, // Fa
+    0x80C4FF, // Sol
+    0xBB80FF, // La
+    0xFF80D5, // Ti
+    0xFF5555  // High Do
+];
+
+const KEY_SIGNATURES = [
+    { name: 'C Major', semitones: 0 },
+    { name: 'G Major', semitones: 7 },
+    { name: 'D Major', semitones: 2 },
+    { name: 'A Major', semitones: 9 },
+    { name: 'E Major', semitones: 4 },
+    { name: 'B Major', semitones: 11 },
+    { name: 'F# Major', semitones: 6 },
+    { name: 'F Major', semitones: 5 }
+];
+
+const INSTRUMENTS = [
+    { name: 'Soprano', lowDoMidi: 60 },
+    { name: 'Alto', lowDoMidi: 55 },
+    { name: 'Tenor', lowDoMidi: 48 },
+    { name: 'Baritone', lowDoMidi: 43 },
+    { name: 'Bass', lowDoMidi: 40 },
+    { name: 'Flute', lowDoMidi: 72 },
+    { name: 'Clarinet', lowDoMidi: 60 },
+    { name: 'Oboe', lowDoMidi: 67 },
+    { name: 'Bassoon', lowDoMidi: 46 },
+    { name: 'Soprano Saxophone', lowDoMidi: 67 },
+    { name: 'Alto Saxophone', lowDoMidi: 58 },
+    { name: 'Tenor Saxophone', lowDoMidi: 53 },
+    { name: 'Baritone Saxophone', lowDoMidi: 46 },
+    { name: 'Trumpet', lowDoMidi: 62 },
+    { name: 'French Horn', lowDoMidi: 55 },
+    { name: 'Trombone', lowDoMidi: 48 },
+    { name: 'Baritone Horn', lowDoMidi: 50 },
+    { name: 'Tuba', lowDoMidi: 41 },
+    { name: 'Violin', lowDoMidi: 67 },
+    { name: 'Viola', lowDoMidi: 60 },
+    { name: 'Cello', lowDoMidi: 48 },
+    { name: 'Double Bass', lowDoMidi: 40 },
+    { name: 'Guitar', lowDoMidi: 52 },
+    { name: 'Ukulele', lowDoMidi: 60 },
+    { name: 'Piano', lowDoMidi: 48 }
+];
+
+const DIFFICULTIES = {
+    easy: {
+        id: 'easy',
+        label: 'EASY',
+        blurb: 'Wide gaps, slow trees, lots of snap.',
+        color: 0x3dff7a,
+        speed: 95,
+        maxSpeed: 145,
+        spacing: 470,
+        minSpacing: 360,
+        gapBars: 2.4,
+        minGapBars: 1.85,
+        snapSemitones: 0.75,
+        follow: 0.24,
+        gravity: 240,
+        rampMs: 60000,
+        delayMs: 20000,
+        noteMin: 2,
+        noteMax: 5,
+        perfectCents: 45,
+        silenceGrace: 300,
+        pairCount: 6
+    },
+    medium: {
+        id: 'medium',
+        label: 'MEDIUM',
+        blurb: 'Classic pitch flappy. One-ish bar windows.',
+        color: 0xffe14a,
+        speed: 130,
+        maxSpeed: 205,
+        spacing: 400,
+        minSpacing: 280,
+        gapBars: 1.65,
+        minGapBars: 1.25,
+        snapSemitones: 0.45,
+        follow: 0.18,
+        gravity: 380,
+        rampMs: 45000,
+        delayMs: 12000,
+        noteMin: 1,
+        noteMax: 6,
+        perfectCents: 35,
+        silenceGrace: 200,
+        pairCount: 7
+    },
+    hard: {
+        id: 'hard',
+        label: 'HARD',
+        blurb: 'Tight gaps, faster pipes, less forgiveness.',
+        color: 0xff8a3d,
+        speed: 170,
+        maxSpeed: 270,
+        spacing: 340,
+        minSpacing: 230,
+        gapBars: 1.2,
+        minGapBars: 1.02,
+        snapSemitones: 0.3,
+        follow: 0.15,
+        gravity: 480,
+        rampMs: 35000,
+        delayMs: 6000,
+        noteMin: 0,
+        noteMax: 7,
+        perfectCents: 28,
+        silenceGrace: 140,
+        pairCount: 7
+    },
+    expert: {
+        id: 'expert',
+        label: 'EXPERT',
+        blurb: 'Exact notes. Tiny windows. No mercy.',
+        color: 0xff4d4d,
+        speed: 210,
+        maxSpeed: 340,
+        spacing: 300,
+        minSpacing: 190,
+        gapBars: 0.98,
+        minGapBars: 0.88,
+        snapSemitones: 0.2,
+        follow: 0.12,
+        gravity: 560,
+        rampMs: 28000,
+        delayMs: 0,
+        noteMin: 0,
+        noteMax: 7,
+        perfectCents: 20,
+        silenceGrace: 90,
+        pairCount: 8
+    }
+};
+
+const NEON = '#39FF14';
+const TEXT_SHADOW = {
+    offsetX: 1,
+    offsetY: 1,
+    color: NEON,
+    blur: 2,
+    stroke: true,
+    fill: true
+};
+
+function midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function freqToMidi(freq) {
+    return 69 + 12 * Math.log2(freq / 440);
+}
+
+function noteNameFromMidi(midi) {
+    const rounded = Math.round(midi);
+    const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
+    const octave = Math.floor(rounded / 12) - 1;
+    return name + octave;
+}
+
+function centsOff(freq, target) {
+    if (freq <= 0 || target <= 0) return 999;
+    return 1200 * Math.log2(freq / target);
+}
+
+function getInstrument(name) {
+    return INSTRUMENTS.find(item => item.name === name) || INSTRUMENTS[0];
+}
+
+function getKey(name) {
+    return KEY_SIGNATURES.find(item => item.name === name) || KEY_SIGNATURES[0];
+}
+
+function pickLowDoMidi(instrumentName, keyName) {
+    const instrument = getInstrument(instrumentName);
+    const key = getKey(keyName);
+    let low = instrument.lowDoMidi + key.semitones;
+    const comfort = instrument.lowDoMidi + 6;
+    const center = low + 6;
+    if (center - comfort > 4) low -= 12;
+    if (comfort - center > 4) low += 12;
+    return low;
+}
+
+// High-to-low frequencies so index 0 is the top bar (high Do).
+function scaleFrequenciesHighToLow(instrumentName, keyName) {
+    const lowDo = pickLowDoMidi(instrumentName, keyName);
+    return MAJOR_INTERVALS_UP.slice().reverse().map(interval => midiToFreq(lowDo + interval));
+}
+
+function pitchNamesHighToLow(instrumentName, keyName) {
+    const lowDo = pickLowDoMidi(instrumentName, keyName);
+    return MAJOR_INTERVALS_UP.slice().reverse().map(interval => noteNameFromMidi(lowDo + interval));
+}
+
+function loadHighScores() {
+    try {
+        const raw = localStorage.getItem(HIGH_SCORE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return {
+            easy: parsed.easy || 0,
+            medium: parsed.medium || 0,
+            hard: parsed.hard || 0,
+            expert: parsed.expert || 0
+        };
+    } catch (err) {
+        return { easy: 0, medium: 0, hard: 0, expert: 0 };
+    }
+}
+
+function saveHighScore(difficultyId, score) {
+    const scores = loadHighScores();
+    if (score > (scores[difficultyId] || 0)) {
+        scores[difficultyId] = score;
+        localStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(scores));
+        return true;
+    }
+    return false;
+}
+
+function loadSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    } catch (err) {
+        return {};
+    }
+}
+
+function saveSettings(partial) {
+    const next = Object.assign(loadSettings(), partial);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+}
+
+function neonText(scene, x, y, content, size) {
+    return scene.add.text(x, y, content, {
+        fontSize: size + 'px',
+        fontFamily: '"VT323", monospace',
+        color: '#FFFFFF',
+        align: 'center',
+        shadow: TEXT_SHADOW
+    });
+}
+
+function detectPitch(buffer, sampleRate, minFreq, maxFreq) {
+    const decim = 3;
+    const n = Math.floor(buffer.length / decim);
+    if (n < 32) return { freq: -1, rms: 0 };
+
+    const samples = new Float32Array(n);
+    let sumSq = 0;
+    for (let i = 0; i < n; i++) {
+        const v = (buffer[i * decim] - 128) / 128;
+        samples[i] = v;
+        sumSq += v * v;
+    }
+    const rms = Math.sqrt(sumSq / n);
+    if (rms < 0.02) return { freq: -1, rms };
+
+    const sr = sampleRate / decim;
+    const minLag = Math.max(2, Math.floor(sr / maxFreq));
+    const maxLag = Math.min(Math.floor(n * 0.5), Math.floor(sr / minFreq));
+    if (maxLag <= minLag + 2) return { freq: -1, rms };
+
+    let bestLag = -1;
+    let bestCorr = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+        let corr = 0;
+        const count = n - lag;
+        for (let i = 0; i < count; i++) {
+            corr += samples[i] * samples[i + lag];
+        }
+        corr /= count;
+        if (corr > bestCorr) {
+            bestCorr = corr;
+            bestLag = lag;
+        }
+    }
+
+    if (bestLag < 0 || bestCorr < 0.01) return { freq: -1, rms };
+
+    let refined = bestLag;
+    if (bestLag > minLag && bestLag < maxLag) {
+        const corrAt = (lag) => {
+            let corr = 0;
+            const count = n - lag;
+            for (let i = 0; i < count; i++) corr += samples[i] * samples[i + lag];
+            return corr / count;
+        };
+        const x1 = corrAt(bestLag - 1);
+        const x2 = bestCorr;
+        const x3 = corrAt(bestLag + 1);
+        const denom = 2 * (2 * x2 - x3 - x1);
+        if (Math.abs(denom) > 1e-6) {
+            refined = bestLag + (x1 - x3) / denom;
+        }
+    }
+
+    return { freq: sr / refined, rms };
+}
+
+function foldIntoRange(freq, minFreq, maxFreq) {
+    if (freq <= 0) return -1;
+    let folded = freq;
+    while (folded < minFreq && folded > 0) folded *= 2;
+    while (folded > maxFreq) folded /= 2;
+    if (folded < minFreq * 0.82 || folded > maxFreq * 1.18) return -1;
+    return folded;
+}
 
 class Background {
     constructor(scene) {
         this.scene = scene;
-        this.createBackgrounds();
+        this.bars = [];
+        this.labels = [];
+        this.keyHints = [];
+        this.highlight = null;
+        this.create();
     }
-    createBackgrounds() {
-        const gameWidth = this.scene.sys.game.config.width;
-        const gameHeight = this.scene.sys.game.config.height;
-        const barHeight = gameHeight / 8;
-        const vibrantColors = [
-            0xFF5555, 0xFFBF80, 0xFFEF80, 0x80FF97,
-            0x80C4FF, 0xBB80FF, 0xFF80D5, 0xFF5555
-        ];
-        this.solfegeNames = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
-        this.pitchNameLabels = []; // To store the text objects for pitch names
-        this.backgroundTexts = []; // To store all text objects for easy update
-        for (let i = 0; i < 8; i++) {
-            const y = gameHeight - (i + 1) * barHeight;
-            const bar = this.scene.add.rectangle(0, y, gameWidth, barHeight, vibrantColors[i]);
+
+    create() {
+        const width = this.scene.sys.game.config.width;
+        const height = this.scene.sys.game.config.height;
+        const barHeight = height / BAR_COUNT;
+
+        for (let i = 0; i < BAR_COUNT; i++) {
+            const y = height - (i + 1) * barHeight;
+            const bar = this.scene.add.rectangle(0, y, width, barHeight, BAR_COLORS[i]);
             bar.setOrigin(0, 0);
-            bar.setAlpha(0.7);
+            bar.setAlpha(0.72);
             bar.setDepth(0);
             bar.setScrollFactor(0);
-            // Initially display Solfege names
-            const text = this.scene.add.text(10, y + barHeight / 2, this.solfegeNames[i], {
-                fontSize: '30px',
-                fontFamily: '"VT323", monospace',
-                fill: '#FFFFFF',
-                align: 'left',
-                shadow: {
-                    offsetX: 1,
-                    offsetY: 1,
-                    color: '#39FF14',
-                    blur: 2,
-                    stroke: true,
-                    fill: true
-                }
-            });
-            text.setOrigin(0, 0.5);
-            text.setDepth(1);
-            text.setScrollFactor(0);
-            this.backgroundTexts.push(text);
+            this.bars.push(bar);
+
+            const label = neonText(this.scene, 12, y + barHeight / 2, SOLFEGE_LOW_TO_HIGH[i], 28);
+            label.setOrigin(0, 0.5);
+            label.setDepth(2);
+            this.labels.push(label);
+
+            const hint = neonText(this.scene, 88, y + barHeight / 2, KEYBOARD_LOW_TO_HIGH[i], 18);
+            hint.setOrigin(0, 0.5);
+            hint.setAlpha(0.55);
+            hint.setDepth(2);
+            this.keyHints.push(hint);
+        }
+
+        this.highlight = this.scene.add.rectangle(width / 2, 0, width, barHeight, 0xffffff, 0.16);
+        this.highlight.setDepth(1);
+        this.highlight.setVisible(false);
+    }
+
+    updateLabels(displayMode, pitchNamesHighToLowList) {
+        for (let i = 0; i < BAR_COUNT; i++) {
+            const highToLowIndex = BAR_COUNT - 1 - i;
+            const name = displayMode === 'Pitch'
+                ? (pitchNamesHighToLowList[highToLowIndex] || '—')
+                : SOLFEGE_LOW_TO_HIGH[i];
+            this.labels[i].setText(name);
         }
     }
-    updateTextDisplay(displayMode, pitchNames = []) {
-        const gameHeight = this.scene.sys.game.config.height;
-        const barHeight = gameHeight / 8;
-        this.backgroundTexts.forEach(text => text.destroy());
-        this.backgroundTexts = [];
-        const namesToDisplay = displayMode === 'Pitch' ? pitchNames : this.solfegeNames;
-        for (let i = 0; i < 8; i++) {
-            const y = gameHeight - (i + 1) * barHeight;
-            const name = namesToDisplay[i] || (displayMode === 'Pitch' ? 'N/A' : this.solfegeNames[i]);
-            const text = this.scene.add.text(10, y + barHeight / 2, name, {
-                fontSize: '30px',
-                fontFamily: '"VT323", monospace',
-                fill: '#FFFFFF',
-                align: 'left',
-                shadow: {
-                    offsetX: 1,
-                    offsetY: 1,
-                    color: '#39FF14',
-                    blur: 2,
-                    stroke: true,
-                    fill: true
-                }
-            });
-            text.setOrigin(0, 0.5);
-            text.setDepth(1);
-            text.setScrollFactor(0);
-            this.backgroundTexts.push(text);
+
+    setTargetNote(noteIndexFromTop) {
+        if (noteIndexFromTop == null || noteIndexFromTop < 0) {
+            this.highlight.setVisible(false);
+            return;
         }
+        const barHeight = this.scene.sys.game.config.height / BAR_COUNT;
+        this.highlight.y = (noteIndexFromTop + 0.5) * barHeight;
+        this.highlight.setVisible(true);
+    }
+
+    setHintsVisible(visible) {
+        this.keyHints.forEach(hint => hint.setVisible(visible));
     }
 }
 
 class Bird extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y) {
-        super(scene, x, y, 'bird1'); // 'bird1' should be preloaded
-        scene.add.existing(this); // Add to display list
-        scene.physics.add.existing(this); // Add to physics system
-        console.log('[Bird Constructor] After scene.physics.add.existing(this), this.body is:', this.body);
-        if (!this.body) {
-            console.error("Bird body not created after scene.physics.add.existing! Attempting fallback.");
-            // This should not happen if physics is enabled for the scene.
-            // As a fallback, try to enable physics directly if body is missing.
-            scene.physics.world.enableBody(this, Phaser.Physics.Arcade.DYNAMIC_BODY);
-            console.log('[Bird Constructor] After fallback scene.physics.world.enableBody, this.body is:', this.body);
-        }
-        this.setScale(0.45); // Scale first
+        super(scene, x, y, 'bird1');
+        scene.add.existing(this);
+        scene.physics.add.existing(this);
+        this.setScale(0.45);
+        this.setDepth(20);
         this.setCollideWorldBounds(true);
-        // Set body size *before* scaling, then scale the sprite.
-        // The physics body will scale with the sprite.
-        if (this.body) {
-            // Adjusted to be a bit smaller and more centered.
-            // The original texture is 128x128. A 0.5 scale factor makes it 64x64.
-            // We want the body to be slightly smaller than the visual sprite.
-            // Let's try 50% of the *original* texture's dimensions for the body.
-            this.body.setSize(this.texture.getSourceImage().width * 0.5, this.texture.getSourceImage().height * 0.5);
-            // Offset to center this smaller body within the original texture space.
-            // (Original Width - Body Width) / 2
-            const offsetX = (this.texture.getSourceImage().width - (this.texture.getSourceImage().width * 0.5)) / 2;
-            const offsetY = (this.texture.getSourceImage().height - (this.texture.getSourceImage().height * 0.5)) / 2;
-            this.body.setOffset(offsetX, offsetY);
-        } else {
-            console.error("Bird body is null during setSize/setOffset!");
+        this.body.setAllowGravity(true);
+        const src = this.texture.getSourceImage();
+        this.body.setSize(src.width * 0.42, src.height * 0.42);
+        this.body.setOffset(src.width * 0.29, src.height * 0.29);
+        if (!scene.anims.exists('flap')) {
+            scene.anims.create({
+                key: 'flap',
+                frames: [{ key: 'bird1' }, { key: 'bird2' }, { key: 'bird3' }, { key: 'bird2' }],
+                frameRate: 10,
+                repeat: -1
+            });
         }
-        // The setScale(0.45) is already present at line 62, which scales the sprite and its body.
-        // No need to call setScale again here unless we want a different final scale.
-        // Let's ensure gravity is enabled after all body configurations.
-        if (this.body) { // Ensure body exists before setting gravity
-            this.body.setAllowGravity(true);
-        }
-        this.setDepth(10);
-        this.setScrollFactor(0);
-        this.createAnimations();
         this.play('flap');
     }
-    createAnimations() {
-        this.scene.anims.create({
-            key: 'flap',
-            frames: [{
-                key: 'bird1'
-            }, {
-                key: 'bird2'
-            }, {
-                key: 'bird3'
-            }, {
-                key: 'bird2'
-            }],
-            frameRate: 10,
-            repeat: -1
-        });
-    }
 }
-class Obstacle extends Phaser.Physics.Arcade.Sprite {
-    constructor(scene, x, y, width, height, speed, gameScene, fromTop = null) {
-        const initialFromTop = fromTop !== null ?
-            fromTop :
-            (gameScene.lastObstacleFromTop === null ?
-                Math.random() > 0.5 :
-                !gameScene.lastObstacleFromTop
-            );
-        const textureKey = initialFromTop ? 'cloud' : 'pipe'; // This line is okay, textureKey is decided
 
-        // Determine initialY based on whether it's a top or bottom obstacle
-        const initialY = initialFromTop ? 0 : gameScene.sys.game.config.height;
-        // If it's a pipe, fromTop must be false. If it's a cloud, fromTop must be true.
-        // This simplifies the logic as initialFromTop is now directly tied to the chosen texture.
-        const finalFromTop = initialFromTop; // Use the passed initialFromTop directly
-        super(scene, x, initialY, textureKey); // textureKey is already determined
-        scene.add.existing(this);
-
-        // ← DYNAMIC body
-        scene.physics.add.existing(this);
-        this.body.setImmovable(true);
-        this.body.allowGravity = false;
-        // Obstacle movement will be handled manually in GameScene's update loop based on speed * deltaTime
-        // So, we don't set velocityX here, but store the speed.
+class ObstaclePair {
+    constructor(scene, x, noteIndex) {
         this.scene = scene;
-        this.obstacleWidth = width;
-        this.speed = speed; // This is now pixels per second
-        this.gameHeight = scene.sys.game.config.height;
-        this.gameScene = gameScene;
-        this.fromTop = finalFromTop; // Use the corrected fromTop
-        gameScene.lastObstacleFromTop = this.fromTop;
-        this.setDepth(5);
-        this.configurePipe(this.fromTop, height);
+        this.x = x;
+        this.noteIndex = noteIndex;
+        this.passed = false;
+        this.speed = scene.currentObstacleSpeed;
+
+        this.top = scene.physics.add.image(x, 0, 'cloud');
+        this.bottom = scene.physics.add.image(x, scene.sys.game.config.height, 'pipe');
+        [this.top, this.bottom].forEach(sprite => {
+            sprite.body.setAllowGravity(false);
+            sprite.body.setImmovable(true);
+            sprite.body.moves = false;
+            sprite.setDepth(5);
+        });
+
+        this.gapLabel = neonText(scene, x, 0, '', 22);
+        this.gapLabel.setOrigin(0.5);
+        this.gapLabel.setDepth(6);
+
+        this.configure();
     }
-    configurePipe(fromTop, height) {
-        this.fromTop = fromTop; // Ensure this.fromTop is set
-        const key = this.fromTop ? 'cloud' : 'pipe';
-        this.setTexture(key);
-        const img = this.texture.getSourceImage();
-        let scaleX = this.obstacleWidth / img.width;
-        let scaleY = height / img.height;
-        if (key === 'cloud') scaleX *= 4.5;
-        this.setScale(scaleX, scaleY);
-        // The physics body should now correctly match the scaled sprite
-        this.body.setSize(this.displayWidth, this.displayHeight, false); // Set body dimensions to match scaled sprite
-        this.body.setOffset(0, 0); // Key change: Offset is (0,0) relative to sprite's implicit top-left
-        if (this.fromTop) { // Cloud
-            this.setOrigin(0.5, 0); // Origin is top-center
-            this.y = 0; // Position sprite's origin at the top of the screen
-        } else { // Pipe
-            this.setOrigin(0.5, 1); // Origin is bottom-center
-            this.y = this.gameHeight; // Position sprite's origin at the bottom of the screen
-        }
-        // updateFromGameObject will now correctly align the physics body (with offset 0,0)
-        // to the sprite's calculated top-left position based on its origin.
-        this.body.updateFromGameObject();
+
+    configure() {
+        const scene = this.scene;
+        const height = scene.sys.game.config.height;
+        const barHeight = scene.barHeight;
+        const gapHeight = scene.currentGapBars * barHeight;
+        const gapCenter = (this.noteIndex + 0.5) * barHeight;
+        const topH = Math.max(18, gapCenter - gapHeight / 2);
+        const bottomH = Math.max(18, height - (gapCenter + gapHeight / 2));
+        const width = scene.obstacleWidth;
+
+        const cloudImg = this.top.texture.getSourceImage();
+        this.top.setOrigin(0.5, 0);
+        this.top.setDisplaySize(width * 2.2, topH);
+        this.top.setPosition(this.x, 0);
+        this.top.body.setSize(cloudImg.width * 0.5, cloudImg.height * 0.82);
+        this.top.body.updateFromGameObject();
+
+        const pipeImg = this.bottom.texture.getSourceImage();
+        this.bottom.setOrigin(0.5, 1);
+        this.bottom.setDisplaySize(width * 1.05, bottomH);
+        this.bottom.setPosition(this.x, height);
+        this.bottom.body.setSize(pipeImg.width * 0.5, pipeImg.height * 0.9);
+        this.bottom.body.updateFromGameObject();
+
+        const label = scene.displayMode === 'Pitch'
+            ? scene.pitchNames[this.noteIndex]
+            : SOLFEGE_HIGH_TO_LOW[this.noteIndex];
+        this.gapLabel.setText(label);
+        this.gapLabel.setPosition(this.x, gapCenter);
+        this.gapLabel.setColor('#FFFFFF');
     }
-    reset() {
-        // reposition off to the right
-        const farthestX = this.gameScene.obstaclesGroup.getChildren()
-            .reduce((max, o) => Math.max(max, o.x), 0);
-        this.x = farthestX + this.gameScene.currentObstacleSpacing;
 
-        // re‐decide top/bottom
-        const elapsed = this.scene.time.now - this.gameScene.gameStartTime;
-        const past = elapsed > this.gameScene.difficultyIncreaseTime;
-        if (past && !this.gameScene.lastObstacleFromTop) {
-            this.fromTop = true;
-        } else if (past && this.gameScene.pairRequired) {
-            this.fromTop = false;
-            this.gameScene.pairRequired = false;
-        } else {
-            this.fromTop = !this.gameScene.lastObstacleFromTop;
-            if (this.fromTop && past) this.gameScene.pairRequired = true;
-        }
-        this.gameScene.lastObstacleFromTop = this.fromTop;
+    setX(x) {
+        this.x = x;
+        this.top.x = x;
+        this.bottom.x = x;
+        this.gapLabel.x = x;
+        if (this.top.body) this.top.body.updateFromGameObject();
+        if (this.bottom.body) this.bottom.body.updateFromGameObject();
+    }
 
-        // choose a new height and type (cloud/pipe)
-        const bar = this.gameScene.barHeight;
-        let newH;
-        // Determine if it's a cloud or a tree based on this.fromTop which is decided earlier in reset()
-        if (this.fromTop) { // It's a cloud
-            // Clouds: La (6th bar), Ti (7th bar), High Do (8th bar from bottom)
-            // Height in terms of barHeight units from the top:
-            const cloudLevels = [1, 2]; // Corresponds to High Do, Ti heights from top. Max height ends at top of La bar.
-            newH = cloudLevels[Math.floor(Math.random() * cloudLevels.length)] * bar;
-        } else { // It's a tree (pipe)
-            // Trees (pipes): Re(1), Mi(2), Fa(3), Sol(4) (0-indexed from bottom)
-            // Height in terms of barHeight units from the bottom:
-            const treeLevels = [2, 3, 4, 5]; // Corresponds to Re, Mi, Fa, Sol heights from bottom
-            newH = treeLevels[Math.floor(Math.random() * treeLevels.length)] * bar;
-        }
-        this.configurePipe(this.fromTop, newH);
+    reset(x, noteIndex) {
+        this.noteIndex = noteIndex;
+        this.passed = false;
+        this.speed = this.scene.currentObstacleSpeed;
+        this.setX(x);
+        this.configure();
+        this.top.setActive(true).setVisible(true);
+        this.bottom.setActive(true).setVisible(true);
+        this.gapLabel.setVisible(true);
+    }
 
-        // reset physics body so it moves again
-        this.body.reset(this.x, this.y);
-        // speed is already correctly set during construction and reset uses the gameScene's current speed
-        this.speed = this.gameScene.currentObstacleSpeed * (this.fromTop ? 1.2 : 1); // Ensure speed is updated if clouds move faster
-        this.setActive(true);
-        this.setVisible(true);
+    stop() {
+        this.speed = 0;
+    }
+
+    destroy() {
+        this.top.destroy();
+        this.bottom.destroy();
+        this.gapLabel.destroy();
     }
 }
-class KeySignatureDropdown {
-    constructor(scene, x, y, width, height, options, defaultOption, callback) {
+
+class Dropdown {
+    constructor(scene, x, y, width, height, options, selected, onSelect) {
         this.scene = scene;
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
         this.options = options;
-        this.scrollFactor = 0; // Make dropdown immune to camera scroll
-        this.selectedOption = defaultOption;
-        this.callback = callback;
-        this.isOpen = false;
-        this.hitArea = null;
-        this.createDropdown();
+        this.selected = selected;
+        this.onSelect = onSelect;
+        this.open = false;
+        this.optionHits = [];
+        this.build();
     }
-    createDropdown() {
-        const neonGreenColor = 0x00FF00;
-        this.dropdownButton = this.scene.add.graphics();
-        this.dropdownButton.fillStyle(0x222222, 1);
-        // this.dropdownButton.lineStyle(3, neonGreenColor, 1); // Removed line style
-        this.dropdownButton.fillRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
-        // this.dropdownButton.strokeRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height); // Removed stroke
-        this.dropdownButton.setDepth(300);
-        this.dropdownButton.setScrollFactor(0);
-        this.dropdownText = this.scene.add.text(this.x, this.y, `${this.selectedOption} ▼`, {
-            fontSize: '18px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        });
-        this.dropdownText.setOrigin(0.5);
-        this.dropdownText.setDepth(301);
-        this.dropdownText.setScrollFactor(0);
-        this.hitArea = this.scene.add.rectangle(this.x, this.y, this.width, this.height)
-            .setInteractive({
-                useHandCursor: true
-            })
-            .on('pointerdown', () => this.toggleDropdown());
-        this.hitArea.setOrigin(0.5);
-        this.hitArea.setAlpha(0.001);
-        this.optionsContainer = this.scene.add.container(this.x, this.y + this.height / 2);
-        this.optionsContainer.setVisible(false);
-        this.optionsContainer.setDepth(300);
-        this.optionsContainer.setScrollFactor(0);
-        this.options.forEach((option, index) => {
-            const optionY = (index + 1) * this.height * 0.8;
-            const optionGraphics = this.scene.add.graphics();
-            optionGraphics.fillStyle(0x2c2c2c, 1);
-            optionGraphics.fillRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8);
-            // optionGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
-            // optionGraphics.strokeRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8); // Removed stroke
-            this.optionsContainer.add(optionGraphics);
-            const optionText = this.scene.add.text(0, optionY, option, {
-                fontSize: '16px',
-                fontFamily: '"VT323", monospace',
-                color: '#FFFFFF',
-                align: 'center',
-                shadow: {
-                    offsetX: 1,
-                    offsetY: 1,
-                    color: '#39FF14',
-                    blur: 1,
-                    stroke: true,
-                    fill: true
-                }
+
+    build() {
+        this.panel = this.scene.add.rectangle(this.x, this.y, this.width, this.height, 0x222222, 1)
+            .setDepth(300)
+            .setScrollFactor(0);
+        this.label = neonText(this.scene, this.x, this.y, this.selected + ' ▼', 18)
+            .setOrigin(0.5)
+            .setDepth(301)
+            .setScrollFactor(0);
+        this.hit = this.scene.add.rectangle(this.x, this.y, this.width, this.height, 0xffffff, 0.001)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(302)
+            .setScrollFactor(0)
+            .on('pointerdown', (pointer, _x, _y, event) => {
+                if (event) event.stopPropagation();
+                this.toggle();
             });
-            optionText.setOrigin(0.5);
-            this.optionsContainer.add(optionText);
-            const optionHitArea = this.scene.add.rectangle(0, optionY, this.width, this.height * 0.8)
-                .setInteractive({
-                    useHandCursor: true
-                })
-                .on('pointerdown', () => this.selectOption(option));
-            optionHitArea.setOrigin(0.5);
-            optionHitArea.setAlpha(0.001);
-            this.optionsContainer.add(optionHitArea);
+
+        this.list = this.scene.add.container(this.x, this.y + this.height / 2);
+        this.list.setDepth(303);
+        this.list.setVisible(false);
+        this.list.setScrollFactor(0);
+
+        this.options.forEach((option, index) => {
+            const oy = (index + 0.5) * (this.height * 0.85);
+            const bg = this.scene.add.rectangle(0, oy, this.width, this.height * 0.85, 0x2c2c2c, 1);
+            const text = neonText(this.scene, 0, oy, option, 16).setOrigin(0.5);
+            const hit = this.scene.add.rectangle(0, oy, this.width, this.height * 0.85, 0xffffff, 0.001)
+                .setInteractive({ useHandCursor: true })
+                .on('pointerover', () => bg.setFillStyle(0x3a3a3a))
+                .on('pointerout', () => bg.setFillStyle(0x2c2c2c))
+                .on('pointerdown', (pointer, _x, _y, event) => {
+                    if (event) event.stopPropagation();
+                    this.select(option);
+                });
+            this.list.add([bg, text, hit]);
+            this.optionHits.push(hit);
         });
-        this.scene.input.on('pointerdown', (pointer) => {
-            if (this.isOpen) {
-                const dropdownBounds = new Phaser.Geom.Rectangle(
-                    this.x - this.width / 2,
-                    this.y - this.height / 2,
-                    this.width,
-                    this.height + (this.options.length * this.height * 0.8)
-                );
-                if (!dropdownBounds.contains(pointer.x, pointer.y)) {
-                    this.closeDropdown();
-                }
+
+        this.outside = (pointer) => {
+            if (!this.open) return;
+            const top = this.y - this.height / 2;
+            const bottom = this.y + this.height / 2 + this.options.length * this.height * 0.85;
+            const left = this.x - this.width / 2;
+            const right = this.x + this.width / 2;
+            if (pointer.x < left || pointer.x > right || pointer.y < top || pointer.y > bottom) {
+                this.close();
             }
-        });
+        };
+        this.scene.input.on('pointerdown', this.outside);
     }
-    toggleDropdown() {
-        this.isOpen = !this.isOpen;
-        this.optionsContainer.setVisible(this.isOpen);
-        this.dropdownText.setText(this.isOpen ? `${this.selectedOption} ▲` : `${this.selectedOption} ▼`);
+
+    toggle() {
+        this.open ? this.close() : this.openList();
     }
-    selectOption(option) {
-        this.selectedOption = option;
-        this.dropdownText.setText(`${this.selectedOption} ▼`);
-        this.isOpen = false;
-        this.optionsContainer.setVisible(false);
-        if (this.callback) this.callback(option);
+
+    openList() {
+        this.open = true;
+        this.list.setVisible(true);
+        this.label.setText(this.selected + ' ▲');
     }
-    closeDropdown() {
-        this.isOpen = false;
-        this.optionsContainer.setVisible(false);
-        this.dropdownText.setText(`${this.selectedOption} ▼`);
+
+    close() {
+        this.open = false;
+        this.list.setVisible(false);
+        this.label.setText(this.selected + ' ▼');
     }
-    setSelectedOption(option) {
-        if (this.options.includes(option)) {
-            this.selectedOption = option;
-            this.dropdownText.setText(`${this.selectedOption} ${this.isOpen ? '▲' : '▼'}`);
-        } else {
-            console.warn(`KeySignatureDropdown: Option "${option}" not found.`);
-        }
+
+    select(option) {
+        this.selected = option;
+        this.close();
+        if (this.onSelect) this.onSelect(option);
     }
+
+    setSelected(option) {
+        this.selected = option;
+        this.label.setText(this.selected + (this.open ? ' ▲' : ' ▼'));
+    }
+
+    getSelected() {
+        return this.selected;
+    }
+
     destroy() {
-        if (this.dropdownButton) this.dropdownButton.destroy();
-        if (this.dropdownText) this.dropdownText.destroy();
-        if (this.optionsContainer) this.optionsContainer.destroy(true); // destroy children too
-        if (this.hitArea) this.hitArea.destroy();
-        // Remove the global pointerdown listener if it was added
-        // this.scene.input.off('pointerdown', this.globalPointerDownHandler, this);
+        this.scene.input.off('pointerdown', this.outside);
+        this.panel.destroy();
+        this.label.destroy();
+        this.hit.destroy();
+        this.list.destroy(true);
+    }
+}
+
+class BootScene extends Phaser.Scene {
+    constructor() {
+        super('BootScene');
+    }
+
+    preload() {
+        this.load.image('bird1', 'assets/Bird_01.png');
+        this.load.image('bird2', 'assets/Bird_02.png');
+        this.load.image('bird3', 'assets/Bird_03.png');
+        this.load.image('pipe', 'assets/pipe.png');
+        this.load.image('cloud', 'assets/Cloud.png');
+    }
+
+    create() {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        g.fillStyle(0xffff66, 1);
+        g.fillCircle(8, 8, 7);
+        g.generateTexture('spark', 16, 16);
+        g.clear();
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(4, 4, 4);
+        g.generateTexture('dot', 8, 8);
+        this.scene.start('StartScreen');
     }
 }
 
@@ -378,1591 +641,749 @@ class StartScreen extends Phaser.Scene {
     constructor() {
         super('StartScreen');
     }
-    preload() {
-        this.load.image('bird1', 'https://play.rosebud.ai/assets/Bird_01.png?5daF');
-        this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-    }
+
     create() {
-        const gameWidth = this.sys.game.config.width;
-        const gameHeight = this.sys.game.config.height;
-        const blackBg = this.add.rectangle(0, 0, gameWidth, gameHeight, 0x000000);
-        blackBg.setOrigin(0, 0);
-        const neonGreenColor = 0x39FF14;
-        const titleText = this.add.text(gameWidth / 2, gameHeight * 0.25, "Pitchy Bird", {
-            fontSize: 'calc(3.75em + 6vmin)',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 2,
-                offsetY: 2,
-                color: '#39FF14',
-                blur: 3,
-                stroke: true,
-                fill: true
-            }
-        });
-        titleText.setOrigin(0.5);
-        titleText.setDepth(10);
-        this.floatingFeathers = this.add.particles('bird1');
-        this.floatingEmitter = this.floatingFeathers.createEmitter({
-            x: {
-                min: 0,
-                max: gameWidth
-            },
-            y: {
-                min: 0,
-                max: gameHeight
-            },
-            speed: {
-                min: 20,
-                max: 50
-            },
-            angle: {
-                min: 0,
-                max: 360
-            },
-            scale: {
-                start: 0.1,
-                end: 0.05
-            },
-            rotate: {
-                min: 0,
-                max: 360
-            },
-            tint: 0xFFFF00,
-            alpha: {
-                start: 0.8,
-                end: 0.3
-            },
-            lifespan: {
-                min: 4000,
-                max: 8000
-            },
-            quantity: 2,
-            frequency: 150,
-            blendMode: 'ADD'
-        });
-        this.input.on('pointermove', (pointer) => {
-            this.pointer = this.pointer || {
-                x: pointer.x,
-                y: pointer.y
-            };
-            const dx = pointer.x - this.pointer.x;
-            const dy = pointer.y - this.pointer.y;
-            this.pointer.x = pointer.x;
-            this.pointer.y = pointer.y;
-            if (dx !== 0 || dy !== 0) {
-                const magnitude = Math.sqrt(dx * dx + dy * dy);
-                if (magnitude > 5) {
-                    this.floatingEmitter.explode(4, pointer.x, pointer.y);
-                    this.floatingEmitter.setSpeed(100 + magnitude);
-                    const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 180) % 360;
-                    this.floatingEmitter.setAngle({
-                        min: angle - 30,
-                        max: angle + 30
-                    });
-                    setTimeout(() => {
-                        this.floatingEmitter.setSpeed({
-                            min: 20,
-                            max: 50
-                        });
-                        this.floatingEmitter.setAngle({
-                            min: 0,
-                            max: 360
-                        });
-                    }, 300);
-                }
-            }
-        });
-        const dropdownWidth = 320;
-        const dropdownHeight = 50;
-        const dropdownY = gameHeight / 2;
-        const dropdown = this.add.graphics();
-        dropdown.fillStyle(0x222222, 1);
-        // dropdown.lineStyle(3, neonGreenColor, 1); // Removed line style
-        dropdown.fillRect(gameWidth / 2 - dropdownWidth / 2, dropdownY - dropdownHeight / 2, dropdownWidth, dropdownHeight);
-        // dropdown.strokeRect(gameWidth / 2 - dropdownWidth / 2, dropdownY - dropdownHeight / 2, dropdownWidth, dropdownHeight); // Removed stroke
-        const dropdownHitArea = this.add.rectangle(gameWidth / 2, dropdownY, dropdownWidth, dropdownHeight);
-        dropdownHitArea.setOrigin(0.5);
-        dropdownHitArea.setInteractive({
-            useHandCursor: true
-        });
-        dropdownHitArea.setAlpha(0.001);
-        const dropdownText = this.add.text(gameWidth / 2, dropdownY, "Select Instrument ▼", {
-            fontSize: '20px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        });
-        dropdownText.setOrigin(0.5);
-        const instrumentOptions = [
-            "Soprano", "Alto", "Tenor", "Baritone", "Bass",
-            "Flute", "Clarinet", "Oboe", "Bassoon",
-            "Soprano Saxophone", "Alto Saxophone", "Tenor Saxophone", "Baritone Saxophone",
-            "Trumpet", "French Horn", "Trombone", "Baritone Horn", "Tuba",
-            "Violin", "Viola", "Cello", "Double Bass",
-            "Guitar", "Ukulele", "Piano"
-        ];
-        const optionHeight = 40;
-        const visibleOptionsCount = 5;
-        const optionsContainerHeight = visibleOptionsCount * optionHeight;
-        const optionsContainer = this.add.container(gameWidth / 2, dropdownY + dropdownHeight / 2);
-        optionsContainer.setSize(dropdownWidth, optionsContainerHeight);
-        optionsContainer.setVisible(false);
-        optionsContainer.setDepth(100);
-        const optionsContent = this.add.container(0, 0);
-        optionsContainer.add(optionsContent);
-        const optionTextElements = [];
-        const totalContentHeight = instrumentOptions.length * optionHeight;
-        let scrollY = 0;
-        const maxScroll = Math.max(0, totalContentHeight - optionsContainerHeight);
-        let selectedInstrument = "Soprano";
-        instrumentOptions.forEach((instrument, index) => {
-            const optionY = index * optionHeight;
-            const optionGraphics = this.add.graphics();
-            optionGraphics.fillStyle(0x2c2c2c, 1);
-            optionGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
-            // optionGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
-            // optionGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
-            optionGraphics.setDepth(150);
-            optionGraphics.optionIndex = index;
-            optionsContent.add(optionGraphics);
-            const option = this.add.rectangle(0, optionY + optionHeight / 2, dropdownWidth, optionHeight, 0x30B060);
-            option.alpha = 0.001;
-            option.setOrigin(0.5);
-            option.setDepth(150);
-            option.setInteractive({
-                useHandCursor: true
+        const width = this.sys.game.config.width;
+        const height = this.sys.game.config.height;
+        const saved = loadSettings();
+
+        this.add.rectangle(0, 0, width, height, 0x050505).setOrigin(0, 0);
+        this.selectedInstrument = saved.instrument || 'Soprano';
+        this.selectedDifficulty = saved.difficulty || 'medium';
+        this.registry.set('selectedInstrument', this.selectedInstrument);
+        this.registry.set('selectedDifficulty', this.selectedDifficulty);
+
+        this.previewBird = this.add.sprite(width / 2, 78, 'bird1').setScale(0.38);
+        if (!this.anims.exists('flap')) {
+            this.anims.create({
+                key: 'flap',
+                frames: [{ key: 'bird1' }, { key: 'bird2' }, { key: 'bird3' }, { key: 'bird2' }],
+                frameRate: 10,
+                repeat: -1
             });
-            const optionText = this.add.text(gameWidth / 2, dropdownY + dropdownHeight + optionY + optionHeight / 2, instrument, {
-                fontSize: '16px',
-                fontFamily: '"VT323", monospace',
-                color: '#FFFFFF',
-                align: 'center',
-                shadow: {
-                    offsetX: 1,
-                    offsetY: 1,
-                    color: '#39FF14',
-                    blur: 1,
-                    stroke: true,
-                    fill: true
-                }
-            });
-            optionText.setOrigin(0.5);
-            optionText.setDepth(999);
-            optionText.setVisible(false);
-            optionTextElements.push(optionText);
-            option.on('pointerover', () => {
-                const hoveredGraphics = this.add.graphics();
-                hoveredGraphics.fillStyle(0x383838, 1);
-                hoveredGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
-                // hoveredGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
-                // hoveredGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
-                const children = optionsContent.getAll();
-                for (let i = 0; i < children.length; i++) {
-                    if (children[i].optionIndex === index && children[i].type === 'Graphics') {
-                        optionsContent.remove(children[i], true);
-                        break;
-                    }
-                }
-                hoveredGraphics.optionIndex = index;
-                hoveredGraphics.setDepth(150);
-                optionsContent.add(hoveredGraphics);
-            });
-            option.on('pointerout', () => {
-                const normalGraphics = this.add.graphics();
-                normalGraphics.fillStyle(0x2c2c2c, 1);
-                normalGraphics.fillRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight);
-                // normalGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
-                // normalGraphics.strokeRect(-dropdownWidth / 2, optionY, dropdownWidth, optionHeight); // Removed stroke
-                const children = optionsContent.getAll();
-                for (let i = 0; i < children.length; i++) {
-                    if (children[i].optionIndex === index && children[i].type === 'Graphics') {
-                        optionsContent.remove(children[i], true);
-                        break;
-                    }
-                }
-                normalGraphics.optionIndex = index;
-                normalGraphics.setDepth(150);
-                optionsContent.add(normalGraphics);
-            });
-            option.on('pointerdown', () => {
-                selectedInstrument = instrument;
-                dropdownText.setText(instrument + " ▼");
-                optionsContainer.setVisible(false);
-                scrollbarBg.setVisible(false);
-                scrollbarHandle.setVisible(false);
-                optionTextElements.forEach(text => text.setVisible(false));
-                this.registry.set('selectedInstrument', instrument);
-                this.featherEmitter.explode(15, dropdown.x, dropdown.y);
-                const doFrequency = this.getDoFrequencyForInstrument(instrument);
-                this.playDoNote(doFrequency);
-            });
-            optionsContent.add([option]);
-            option.optionText = optionText;
-        });
-        const mask = this.make.graphics();
-        mask.fillStyle(0xffffff);
-        mask.fillRect(gameWidth / 2 - dropdownWidth / 2, dropdownY + dropdownHeight, dropdownWidth, optionsContainerHeight);
-        const geometryMask = mask.createGeometryMask();
-        optionsContent.setMask(geometryMask);
-        const scrollbarBgWidth = 12;
-        const scrollbarBg = this.add.rectangle(dropdownWidth / 2 - scrollbarBgWidth, 0, scrollbarBgWidth, optionsContainerHeight, 0x1a1a1a);
-        scrollbarBg.setOrigin(0.5, 0);
-        scrollbarBg.setAlpha(0.8);
-        scrollbarBg.setVisible(false);
-        optionsContainer.add(scrollbarBg);
-        const scrollbarHandleWidth = 8;
-        const scrollbarHandleHeight = Math.max(20, (optionsContainerHeight / totalContentHeight) * optionsContainerHeight);
-        const scrollbarHandle = this.add.rectangle(scrollbarBg.x, 0, scrollbarHandleWidth, scrollbarHandleHeight, neonGreenColor);
-        scrollbarHandle.setOrigin(0.5, 0);
-        scrollbarHandle.setAlpha(0.9);
-        scrollbarHandle.setVisible(false);
-        optionsContainer.add(scrollbarHandle);
-        scrollbarHandle.setInteractive({
-            useHandCursor: true,
-            draggable: true
-        });
-        scrollbarHandle.on('drag', (pointer, dragX, dragY) => {
-            if (!optionsContainer.visible || !scrollbarHandle.visible || !scrollbarHandle.input || !scrollbarHandle.input.dragStartPoint) return;
-            const trackTopY = 0;
-            const trackBottomY = optionsContainerHeight - scrollbarHandle.height;
-            let newHandleY = (pointer.y - optionsContainer.y) - scrollbarHandle.input.dragStartPoint.y + scrollbarHandle.input.dragStartY;
-            newHandleY = Phaser.Math.Clamp(newHandleY, trackTopY, trackBottomY);
-            scrollbarHandle.y = newHandleY;
-            const scrollProgress = (trackBottomY - trackTopY === 0) ? 0 : (newHandleY - trackTopY) / (trackBottomY - trackTopY);
-            scrollY = scrollProgress * maxScroll;
-            optionsContent.y = -scrollY;
-            optionTextElements.forEach((text, index) => {
-                const optionAbsoluteY = index * optionHeight;
-                const visibleY = optionsContainer.y + optionAbsoluteY + optionHeight / 2 + optionsContent.y;
-                const isWithinVisibleArea = visibleY >= optionsContainer.y && visibleY <= optionsContainer.y + optionsContainerHeight;
-                text.setVisible(optionsContainer.visible && isWithinVisibleArea);
-                text.setY(visibleY);
-            });
-        });
-        this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
-            if (optionsContainer.visible) {
-                const optionsContainerBounds = {
-                    x: gameWidth / 2 - dropdownWidth / 2,
-                    y: dropdownY + dropdownHeight,
-                    width: dropdownWidth,
-                    height: optionsContainerHeight
-                };
-                if (pointer.x >= optionsContainerBounds.x && pointer.x <= optionsContainerBounds.x + optionsContainerBounds.width &&
-                    pointer.y >= optionsContainerBounds.y && pointer.y <= optionsContainerBounds.y + optionsContainerHeight) {
-                    scrollY += deltaY * 0.5;
-                    scrollY = Phaser.Math.Clamp(scrollY, 0, maxScroll);
-                    optionsContent.y = -scrollY;
-                    optionTextElements.forEach((text, index) => {
-                        const optionY = index * optionHeight;
-                        const visibleY = optionsContainer.y + optionY + optionHeight / 2 - scrollY;
-                        const isWithinVisibleArea = visibleY >= optionsContainer.y && visibleY <= optionsContainer.y + optionsContainerHeight;
-                        text.setVisible(optionsContainer.visible && isWithinVisibleArea);
-                        text.setY(visibleY);
-                    });
-                    const trackTopY = 0;
-                    const trackBottomY = optionsContainerHeight - scrollbarHandle.height;
-                    const scrollProgress = maxScroll === 0 ? 0 : scrollY / maxScroll;
-                    scrollbarHandle.y = trackTopY + scrollProgress * (trackBottomY - trackTopY);
-                }
-            }
-        });
-        const optionsBorder = this.add.rectangle(0, optionsContainerHeight / 2, dropdownWidth + 6, optionsContainerHeight + 6, neonGreenColor);
-        optionsBorder.setOrigin(0.5);
-        optionsBorder.setDepth(-2);
-        optionsContainer.add(optionsBorder);
-        const optionsBackground = this.add.rectangle(0, optionsContainerHeight / 2, dropdownWidth + 4, optionsContainerHeight + 4, 0x222222);
-        optionsBackground.setOrigin(0.5);
-        optionsBackground.setDepth(-1);
-        optionsContainer.add(optionsBackground);
-        optionsContainer.each(child => {
-            if (child.type === 'Text') {
-                child.setDepth(200);
-                child.setVisible(true);
-            }
-        });
-        optionsContainer.setSize(dropdownWidth, instrumentOptions.length * optionHeight);
-        dropdownHitArea.on('pointerdown', () => {
-            const newVisibility = !optionsContainer.visible;
-            optionsContainer.setVisible(newVisibility);
-            scrollbarBg.setVisible(newVisibility);
-            scrollbarHandle.setVisible(newVisibility);
-            this.featherEmitter.explode(10, dropdown.x, dropdown.y);
-            optionTextElements.forEach((text, index) => {
-                const optionY = index * optionHeight;
-                const visibleY = dropdownY + dropdownHeight + optionY + optionHeight / 2 - scrollY;
-                const isWithinVisibleArea = visibleY >= dropdownY + dropdownHeight && visibleY <= dropdownY + dropdownHeight + optionsContainerHeight;
-                text.setVisible(newVisibility && isWithinVisibleArea);
-                text.setY(visibleY);
-            });
-            optionsContainer.setPosition(gameWidth / 2, dropdownY + dropdownHeight);
-            scrollY = 0;
-            optionsContent.y = 0;
-            scrollbarHandle.y = 0;
-            optionsContainer.setDepth(100);
-            optionsContent.each(child => {
-                child.setVisible(true);
-                if (child.type === 'Text') child.setDepth(200);
-                else if (child.type === 'Rectangle') {
-                    child.setDepth(150);
-                    child.setVisible(true);
-                    if (child !== optionsBorder && child !== optionsBackground) {
-                        child.setFillStyle(0x444444);
-                        child.setAlpha(0.95);
-                    }
-                }
-            });
-        });
-        this.input.on('pointerdown', (pointer) => {
-            const optionsRect = {
-                x: gameWidth / 2 - dropdownWidth / 2,
-                y: dropdownY + dropdownHeight,
-                width: dropdownWidth,
-                height: optionsContainerHeight
-            };
-            const dropdownRect = {
-                x: gameWidth / 2 - dropdownWidth / 2,
-                y: dropdownY - dropdownHeight / 2,
-                width: dropdownWidth,
-                height: dropdownHeight
-            };
-            const clickedOptions = pointer.x >= optionsRect.x && pointer.x <= optionsRect.x + optionsRect.width && pointer.y >= optionsRect.y && pointer.y <= optionsRect.y + optionsRect.height;
-            const clickedDropdown = pointer.x >= dropdownRect.x && pointer.x <= dropdownRect.x + dropdownRect.width && pointer.y >= dropdownRect.y && pointer.y <= dropdownRect.y + dropdownRect.height;
-            if (optionsContainer.visible && !clickedOptions && !clickedDropdown) {
-                optionsContainer.setVisible(false);
-                scrollbarBg.setVisible(false);
-                scrollbarHandle.setVisible(false);
-                optionTextElements.forEach(text => text.setVisible(false));
-            }
-        });
-        const buttonWidth = 220;
-        const buttonHeight = 80;
-        const buttonGraphics = this.add.graphics();
-        const createButton = (isHover = false) => {
-            buttonGraphics.clear();
-            buttonGraphics.fillStyle(0x000000, 0.5);
-            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2 + 4, gameHeight / 2 + 100 - buttonHeight / 2 + 4, buttonWidth, buttonHeight);
-            buttonGraphics.fillStyle(isHover ? 0x444444 : 0x222222, 1);
-            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight);
-            // buttonGraphics.lineStyle(3, neonGreenColor, 1); // Removed line style
-            // buttonGraphics.strokeRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight); // Removed stroke
-        };
-        createButton();
-        const button = this.add.rectangle(gameWidth / 2, gameHeight / 2 + 100, buttonWidth, buttonHeight);
-        button.setOrigin(0.5);
-        button.setInteractive({
-            useHandCursor: true
-        });
-        button.setAlpha(0.001);
-        const text = this.add.text(gameWidth / 2, gameHeight / 2 + 100, "Let's Fly!", {
-            fontSize: '28px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 2,
-                offsetY: 2,
-                color: '#39FF14',
-                blur: 3,
-                stroke: true,
-                fill: true
-            }
-        });
-        text.setOrigin(0.5);
-        this.featherParticles = this.add.particles('bird1');
-        this.featherEmitter = this.featherParticles.createEmitter({
-            x: button.x,
-            y: button.y,
-            speed: {
-                min: 100,
-                max: 200
-            },
-            angle: {
-                min: -150,
-                max: -30
-            },
-            scale: {
-                start: 0.1,
-                end: 0.01
-            },
-            rotate: {
-                min: 0,
-                max: 360
-            },
-            tint: 0xFFFF00,
-            alpha: {
-                start: 1,
-                end: 0
-            },
-            lifespan: 2000,
-            quantity: 20,
-            on: false
-        });
-        button.on('pointerover', () => {
-            this.featherEmitter.explode(30, button.x, button.y);
-            createButton(true);
-            text.setColor('#FFFFFF');
-            text.setShadow(2, 2, '#5CFF5C', 3, true, true);
-            this.buttonPulseTween = this.tweens.add({
-                targets: text,
-                scaleX: {
-                    from: 1,
-                    to: 1.05
-                },
-                scaleY: {
-                    from: 1,
-                    to: 1.05
-                },
-                duration: 600,
-                yoyo: true,
-                repeat: -1,
-                ease: 'Sine.easeInOut'
-            });
-        });
-        button.on('pointerout', () => {
-            createButton(false);
-            text.setColor('#FFFFFF');
-            text.setShadow(2, 2, '#39FF14', 3, true, true);
-            if (this.buttonPulseTween) {
-                this.buttonPulseTween.stop();
-                text.setScale(1);
-            }
-        });
-        button.on('pointerdown', () => {
-            this.tweens.add({
-                targets: [buttonGraphics, text],
-                y: '+= 4',
-                duration: 50,
-                ease: 'Power1',
-                yoyo: true,
-                onComplete: () => {
-                    const instrument = this.registry.get('selectedInstrument') || 'Soprano';
-                    let defaultKeyForInstrument = 'C Major';
-                    if (instrument === 'Tenor') defaultKeyForInstrument = 'F Major';
-                    // Add other instrument-specific key signature defaults here if needed
-                    this.registry.set('userSelectedKeySignature', defaultKeyForInstrument);
-                    this.scene.start('GameScene', {
-                        instrument: instrument,
-                        selectedKeySignature: defaultKeyForInstrument
-                    });
-                }
-            });
-            this.featherEmitter.explode(50, button.x, button.y);
-        });
-    }
-    getDoFrequencyForInstrument(instrument) {
-        let freqArray;
-        switch (instrument) {
-            case 'Soprano':
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'Alto':
-                freqArray = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'Tenor':
-                freqArray = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'Baritone':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Bass':
-                freqArray = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'Violin':
-                freqArray = [1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33, 523.25];
-                break;
-            case 'Viola':
-                freqArray = [659.26, 587.33, 523.25, 440.00, 392.00, 349.23, 329.63, 293.66];
-                break;
-            case 'Cello':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Double Bass':
-                freqArray = [233.08, 196.00, 174.61, 146.83, 130.81, 110.00, 98.00, 82.41];
-                break;
-            case 'Flute':
-                freqArray = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'Clarinet':
-                freqArray = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            case 'Oboe':
-                freqArray = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 440.00];
-                break;
-            case 'Bassoon':
-                freqArray = [293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81, 116.54];
-                break;
-            case 'Trumpet':
-                freqArray = [659.26, 587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66];
-                break;
-            case 'French Horn':
-                freqArray = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Trombone':
-                freqArray = [329.63, 293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81];
-                break;
-            case 'Baritone Horn':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 155.56, 146.83];
-                break;
-            case 'Tuba':
-                freqArray = [196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 98.00, 87.31];
-                break;
-            case 'Soprano Saxophone':
-                freqArray = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 415.30];
-                break;
-            case 'Alto Saxophone':
-                freqArray = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Tenor Saxophone':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 207.65, 196.00];
-                break;
-            case 'Baritone Saxophone':
-                freqArray = [261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83, 130.81];
-                break;
-            case 'Guitar':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Ukulele':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Piano':
-                freqArray = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
-                break;
-            default:
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
         }
-        return freqArray[7];
-    }
-    playDoNote(frequency) {
-        if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        const oscillator = this.audioContext.createOscillator();
-        const gainNode = this.audioContext.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0.5, this.audioContext.currentTime + 0.1);
-        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 1.0);
-        oscillator.connect(gainNode);
-        gainNode.connect(this.audioContext.destination);
-        const noteIndicator = this.add.circle(this.sys.game.config.width / 2, this.sys.game.config.height * 0.25 + 80, 30, 0x555555);
-        noteIndicator.setAlpha(0.8);
-        const noteText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height * 0.25 + 80, "Do", {
-            fontSize: '20px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        });
-        noteText.setOrigin(0.5);
+        this.previewBird.play('flap');
         this.tweens.add({
-            targets: [noteIndicator],
-            scale: {
-                from: 1,
-                to: 1.5
-            },
-            alpha: {
-                from: 0.8,
-                to: 0
-            },
-            duration: 1000,
-            onComplete: () => {
-                noteIndicator.destroy();
-                noteText.destroy();
-            }
+            targets: this.previewBird,
+            y: 90,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
         });
-        oscillator.start();
-        oscillator.stop(this.audioContext.currentTime + 1.0);
+
+        neonText(this, width / 2, 128, 'PITCHY BIRD', 64).setOrigin(0.5);
+        neonText(this, width / 2, 168, 'Sing the note. Fly the gap.', 22).setOrigin(0.5).setAlpha(0.9);
+
+        neonText(this, width / 2, 200, 'INSTRUMENT', 16).setOrigin(0.5).setAlpha(0.7);
+        this.instrumentIndex = Math.max(0, INSTRUMENTS.findIndex(item => item.name === this.selectedInstrument));
+        this.drawInstrumentPicker(width);
+
+        neonText(this, width / 2, 268, 'DIFFICULTY', 16).setOrigin(0.5).setAlpha(0.7);
+        this.difficultyButtons = [];
+        const ids = ['easy', 'medium', 'hard', 'expert'];
+        ids.forEach((id, index) => {
+            const preset = DIFFICULTIES[id];
+            const bx = 115 + index * 190;
+            const by = 318;
+            const card = this.add.rectangle(bx, by, 170, 72, 0x1a1a1a, 1).setInteractive({ useHandCursor: true });
+            const label = neonText(this, bx, by - 12, preset.label, 26).setOrigin(0.5);
+            label.setColor(Phaser.Display.Color.IntegerToColor(preset.color).rgba);
+            const scores = loadHighScores();
+            const best = neonText(this, bx, by + 16, 'Best ' + (scores[id] || 0), 16).setOrigin(0.5).setAlpha(0.8);
+            card.on('pointerdown', () => this.selectDifficulty(id));
+            this.difficultyButtons.push({ id, card, label, best });
+        });
+        this.blurbText = neonText(this, width / 2, 372, DIFFICULTIES[this.selectedDifficulty].blurb, 18)
+            .setOrigin(0.5)
+            .setAlpha(0.9);
+        this.refreshDifficultyButtons();
+
+        const fly = this.add.rectangle(width / 2, 430, 240, 64, 0x222222, 1)
+            .setInteractive({ useHandCursor: true });
+        const flyLabel = neonText(this, width / 2, 430, "LET'S FLY!", 30).setOrigin(0.5);
+        fly.on('pointerover', () => fly.setFillStyle(0x333333));
+        fly.on('pointerout', () => fly.setFillStyle(0x222222));
+        fly.on('pointerdown', () => this.beginGame());
+
+        this.tweens.add({
+            targets: flyLabel,
+            scaleX: 1.06,
+            scaleY: 1.06,
+            duration: 700,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+
+        neonText(this, width / 2, 488, 'Hold a pitch to move. Higher = up, lower = down.', 16)
+            .setOrigin(0.5)
+            .setAlpha(0.75);
+        neonText(this, width / 2, 512, 'No mic? A–K or 1–8 sing the bars. SPACE hears the next note.', 16)
+            .setOrigin(0.5)
+            .setAlpha(0.75);
+
+        const scores = loadHighScores();
+        neonText(
+            this,
+            width / 2,
+            552,
+            `Highs  Easy ${scores.easy}   Med ${scores.medium}   Hard ${scores.hard}   Expert ${scores.expert}`,
+            16
+        ).setOrigin(0.5).setAlpha(0.6);
+
+        this.input.keyboard.on('keydown-ENTER', () => this.beginGame());
+        this.input.keyboard.on('keydown-SPACE', () => this.beginGame());
+    }
+
+    drawInstrumentPicker(width) {
+        const prev = this.add.rectangle(width / 2 - 150, 230, 44, 40, 0x222222, 1)
+            .setInteractive({ useHandCursor: true });
+        neonText(this, width / 2 - 150, 230, '<', 28).setOrigin(0.5);
+        const next = this.add.rectangle(width / 2 + 150, 230, 44, 40, 0x222222, 1)
+            .setInteractive({ useHandCursor: true });
+        neonText(this, width / 2 + 150, 230, '>', 28).setOrigin(0.5);
+        this.add.rectangle(width / 2, 230, 230, 40, 0x222222, 1);
+        this.instrumentText = neonText(this, width / 2, 230, this.selectedInstrument, 20).setOrigin(0.5);
+        prev.on('pointerdown', () => this.cycleInstrument(-1));
+        next.on('pointerdown', () => this.cycleInstrument(1));
+        this.input.keyboard.on('keydown-LEFT', () => this.cycleInstrument(-1));
+        this.input.keyboard.on('keydown-RIGHT', () => this.cycleInstrument(1));
+    }
+
+    cycleInstrument(dir) {
+        this.instrumentIndex = (this.instrumentIndex + dir + INSTRUMENTS.length) % INSTRUMENTS.length;
+        this.selectedInstrument = INSTRUMENTS[this.instrumentIndex].name;
+        this.instrumentText.setText(this.selectedInstrument);
+        this.registry.set('selectedInstrument', this.selectedInstrument);
+        this.playDo();
+    }
+
+    selectDifficulty(id) {
+        this.selectedDifficulty = id;
+        this.registry.set('selectedDifficulty', id);
+        this.blurbText.setText(DIFFICULTIES[id].blurb);
+        this.refreshDifficultyButtons();
+    }
+
+    refreshDifficultyButtons() {
+        this.difficultyButtons.forEach(btn => {
+            const active = btn.id === this.selectedDifficulty;
+            btn.card.setFillStyle(active ? 0x2a2a2a : 0x1a1a1a);
+            btn.card.setStrokeStyle(active ? 3 : 1, DIFFICULTIES[btn.id].color, active ? 1 : 0.35);
+        });
+    }
+
+    playDo() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const freq = midiToFreq(pickLowDoMidi(this.selectedInstrument, 'C Major'));
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.5);
+        } catch (err) {
+            // Autoplay / audio context can fail before a gesture; ignore.
+        }
+    }
+
+    async beginGame() {
+        if (this.starting) return;
+        this.starting = true;
+        saveSettings({
+            instrument: this.selectedInstrument,
+            difficulty: this.selectedDifficulty
+        });
+        this.registry.set('selectedInstrument', this.selectedInstrument);
+        this.registry.set('selectedDifficulty', this.selectedDifficulty);
+
+        if (!this.registry.get('micStream') && !this.registry.get('micDenied')) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                this.registry.set('micStream', stream);
+                this.registry.set('micDenied', false);
+            } catch (err) {
+                this.registry.set('micDenied', true);
+            }
+        }
+
+        this.scene.start('GameScene', {
+            instrument: this.selectedInstrument,
+            difficulty: this.selectedDifficulty,
+            selectedKeySignature: loadSettings().keySignature || 'C Major'
+        });
     }
 }
 
 class GameScene extends Phaser.Scene {
     constructor() {
         super('GameScene');
-        this.instrument = 'Soprano';
+    }
+
+    init(data) {
+        this.instrument = (data && data.instrument) || this.registry.get('selectedInstrument') || 'Soprano';
+        this.difficultyId = (data && data.difficulty) || this.registry.get('selectedDifficulty') || 'medium';
+        this.preset = DIFFICULTIES[this.difficultyId] || DIFFICULTIES.medium;
+        this.selectedKeySignature = (data && data.selectedKeySignature) || loadSettings().keySignature || 'C Major';
+        this.displayMode = loadSettings().displayMode || 'Solfege';
+        this.isGameOver = false;
+        this.playing = false;
+        this.score = 0;
+        this.perfects = 0;
+        this.combo = 0;
+        this.bestCombo = 0;
+        this.lastNoteIndex = null;
+        this.smoothLogFreq = null;
+        this.silenceMs = 0;
+        this.ignoreMicUntil = 0;
+        this.heldNoteIndex = null;
         this.audioContext = null;
         this.analyserNode = null;
         this.dataArray = null;
-        this.currentY = 0;
-        this.targetY = 0;
-        this.lowDoLogFreq = 0;
-        this.highDoLogFreq = 0;
-        this.keySignatureDropdown = null;
-        this.selectedKeySignature = 'C Major';
-        this.displayMode = 'Solfege'; // 'Solfege' or 'Pitch'
-        this.displayModeButton = null;
-        this.displayModeText = null;
-        this.pitchNames = [];
-        this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-        this.obstacles = [];
-        this.baseGameWidth = 800; // Reference width for scaling
-        this.widthScaleFactor = 1; // Will be calculated in create
-        this.initialObstacleSpeed = 120; // pixels per second at baseGameWidth
-        this.maxObstacleSpeed = 300; // pixels per second at baseGameWidth
-        this.currentObstacleSpeed = this.initialObstacleSpeed;
-        this.obstacleWidth = 60; // Consider scaling this too if needed
-        this.gameStartTime = 0;
-        this.difficultyIncreaseTime = 20000;
-        this.initialObstacleSpacing = 400; // at baseGameWidth
-        this.minObstacleSpacing = 150; // at baseGameWidth
-        this.currentObstacleSpacing = this.initialObstacleSpacing;
-        this.initialMinHeight = 0.1;
-        this.initialMaxHeight = 0.5;
-        this.finalMinHeight = 0.2;
-        this.finalMaxHeight = 0.7;
-        this.currentMinHeight = this.initialMinHeight;
-        this.currentMaxHeight = this.initialMaxHeight;
-        this.lastObstacleFromTop = null;
-        this.isGameOver = false;
-        this.score = 0;
-        this.scoreText = null;
-        this.obstaclesGroup = null; // Added for grouping obstacles
+        this.pairs = [];
     }
-    preload() {
-        this.load.image('background', 'https://play.rosebud.ai/assets/Background.png?Mzty');
-        this.load.image('bird1', 'https://play.rosebud.ai/assets/Bird_01.png?5daF');
-        this.load.image('bird2', 'https://play.rosebud.ai/assets/Bird_02.png?Z0Lm');
-        this.load.image('bird3', 'https://play.rosebud.ai/assets/Bird_03.png?xLfa');
-        this.load.image('pipe', 'https://play.rosebud.ai/assets/Pipe.png?2SXh');
-        this.load.image('gameOver', 'https://play.rosebud.ai/assets/GameOver.png?wADk');
-        this.load.image('musicNotes', 'https://play.rosebud.ai/assets/Music Notes.png?QW4u');
-        this.load.image('cloud', 'https://play.rosebud.ai/assets/Cloud.png?oeuQ');
-    }
-    create(data) {
-        this.isGameOver = false;
-        this.score = 0;
+
+    create() {
+        const width = this.sys.game.config.width;
+        const height = this.sys.game.config.height;
+        this.barHeight = height / BAR_COUNT;
+        this.obstacleWidth = 58;
+        this.widthScale = width / GAME_WIDTH;
+        this.currentObstacleSpeed = this.preset.speed * this.widthScale;
+        this.currentObstacleSpacing = this.preset.spacing * this.widthScale;
+        this.currentGapBars = this.preset.gapBars;
         this.gameStartTime = this.time.now;
-        // Calculate scale factor based on actual game width vs base width
-        this.widthScaleFactor = this.sys.game.config.width / this.baseGameWidth;
-        // Apply scale factor to speed and spacing
-        this.initialObstacleSpeedScaled = this.initialObstacleSpeed * this.widthScaleFactor;
-        this.maxObstacleSpeedScaled = this.maxObstacleSpeed * this.widthScaleFactor;
-        this.currentObstacleSpeed = this.initialObstacleSpeedScaled;
-        this.initialObstacleSpacingScaled = this.initialObstacleSpacing * this.widthScaleFactor;
-        this.minObstacleSpacingScaled = this.minObstacleSpacing * this.widthScaleFactor;
-        this.currentObstacleSpacing = this.initialObstacleSpacingScaled;
-        this.currentMinHeight = this.initialMinHeight;
-        this.currentMaxHeight = this.initialMaxHeight;
-        this.lastObstacleFromTop = null;
-        this.hasPairedObstacles = false; // Reset this flag as well
-        if (data && data.instrument) {
-            this.instrument = data.instrument;
-            this.adjustVocalRange(this.instrument); // This might set a default key
-        }
-        // Determine the key signature
-        let keyToUse;
-        if (data && data.selectedKeySignature) {
-            // If a key signature is explicitly passed (e.g., from restart or StartScreen selection)
-            keyToUse = data.selectedKeySignature;
-        } else if (this.registry.get('userSelectedKeySignature')) {
-            // If user made a selection previously in the game
-            keyToUse = this.registry.get('userSelectedKeySignature');
-        } else {
-            // Otherwise, default based on instrument or overall default
-            keyToUse = (this.instrument === 'Tenor') ? 'F Major' : 'C Major';
-        }
-        this.selectedKeySignature = keyToUse;
-        this.registry.set('selectedKeySignature', this.selectedKeySignature); // Store the active key
-        // Destroy existing game objects if they exist from a previous run
-        if (this.bird) this.bird.destroy();
-        if (this.obstaclesGroup) {
-            // Ensure the group exists and has children before attempting to clear
-            if (this.obstaclesGroup.children && this.obstaclesGroup.children.size > 0) {
-                this.obstaclesGroup.clear(true, true);
-            }
-            this.obstaclesGroup.destroy();
-            this.obstaclesGroup = null;
-        }
-        this.obstaclesGroup = this.physics.add.staticGroup(); // Ensure group is created BEFORE use
-        if (this.scoreText) this.scoreText.destroy();
-        if (this.keySignatureDropdown) { // Check if it exists before trying to destroy
-            this.keySignatureDropdown.destroy(); // Use the new destroy method
-            this.keySignatureDropdown = null;
-        }
-        if (this.scoreTimer) this.scoreTimer.remove();
-        if (this.featherParticles) this.featherParticles.destroy();
-        if (this.musicNoteParticles) this.musicNoteParticles.destroy();
-        if (this.displayModeButton) this.displayModeButton.destroy();
-        if (this.displayModeText) this.displayModeText.destroy();
+        this.currentY = height / 2;
+        this.targetY = height / 2;
+        this.physics.world.gravity.y = this.preset.gravity;
+
+        this.rebuildScale();
         this.background = new Background(this);
-        this.generatePitchNames(); // Generate pitch names before updating background
-        this.background.updateTextDisplay(this.displayMode, this.pitchNames);
-        this.bird = new Bird(this, this.sys.game.config.width * 0.25, 150); // Adjusted initial Y position
+        this.background.updateLabels(this.displayMode, this.pitchNames);
+        this.background.setHintsVisible(true);
+
+        this.bird = new Bird(this, width * 0.22, height / 2);
+        this.bird.body.setAllowGravity(false);
         this.currentY = this.bird.y;
-        this.targetY = this.bird.y;
-        const solfegeLogFrequencies = this.vocalRangeFrequencies.map(freq => Math.log2(freq));
-        this.lowDoLogFreq = solfegeLogFrequencies[solfegeLogFrequencies.length - 1];
-        this.highDoLogFreq = solfegeLogFrequencies[0];
-        this.barHeight = this.sys.game.config.height / 8;
-        // this.obstaclesGroup is already reliably initialized earlier (around line 999)
-        this.obstacles = [];
-        this.createObstacles();
-        this.createBirdParticles();
-        this.createMusicNoteParticles();
-        this.initAudio(); // Ensure audio is re-initialized
-        this.input.once('pointerdown', () => {
-            if (this.audioContext && this.audioContext.state === 'suspended') {
-                this.audioContext.resume();
-            }
-        }, this);
-        this.setupCollisions(); // Re-setup collisions for new bird and obstacles
-        this.createScoreText(); // Re-create score text
-        this.scoreTimer = this.time.addEvent({
-            delay: 1000,
-            callback: this.incrementScore,
-            callbackScope: this,
-            loop: true
-        });
-        const keySignatures = ['C Major', 'G Major', 'D Major', 'A Major', 'E Major', 'B Major', 'F Major'];
-        this.keySignatureDropdown = new KeySignatureDropdown(
-            this,
-            this.sys.game.config.width - 100,
-            30,
-            180,
-            36,
-            keySignatures,
-            this.selectedKeySignature, // This is the resolved key signature
-            (selectedKey) => this.handleKeySignatureChange(selectedKey)
-        );
-        // Ensure the dropdown visually reflects the selectedKeySignature
-        this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
-        this.keySignatureDropdown.dropdownButton.setDepth(250);
-        this.keySignatureDropdown.dropdownText.setDepth(251);
-        this.keySignatureDropdown.optionsContainer.setDepth(250);
-        this.createDisplayModeButton();
+        this.paused = false;
+
+        this.createParticles();
+        this.createPairs();
+        this.setupCollisions();
+        this.createHud();
+        this.initAudio();
+        this.bindInput();
+        this.startCountdown();
     }
-    generatePitchNames() {
-        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        this.pitchNames = this.vocalRangeFrequencies.map(freq => {
-            if (freq <= 0) return "N/A";
-            const midiNum = 69 + 12 * Math.log2(freq / 440);
-            const noteIndex = Math.round(midiNum) % 12;
-            const octave = Math.floor(Math.round(midiNum) / 12) - 1;
-            return noteStrings[noteIndex] + octave;
-        }).reverse(); // Assuming vocalRangeFrequencies is high to low, reverse for display bottom to top
+
+    rebuildScale() {
+        this.vocalRangeFrequencies = scaleFrequenciesHighToLow(this.instrument, this.selectedKeySignature);
+        this.pitchNames = pitchNamesHighToLow(this.instrument, this.selectedKeySignature);
+        this.minDetectFreq = this.vocalRangeFrequencies[this.vocalRangeFrequencies.length - 1] * 0.75;
+        this.maxDetectFreq = this.vocalRangeFrequencies[0] * 1.3;
     }
-    createDisplayModeButton() {
-        const buttonWidth = 180;
-        const buttonHeight = 36;
-        const buttonX = this.sys.game.config.width - 100; // Same X as dropdown
-        const buttonY = 30 + 36 + 10; // Below dropdown + spacing
-        this.displayModeButton = this.add.graphics();
-        this.displayModeButton.fillStyle(0x222222, 1);
-        this.displayModeButton.fillRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight);
-        this.displayModeButton.setDepth(250);
-        this.displayModeButton.setScrollFactor(0);
-        this.displayModeText = this.add.text(buttonX, buttonY, `Mode: ${this.displayMode}`, {
-            fontSize: '16px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 1,
-                stroke: true,
-                fill: true
-            }
-        });
-        this.displayModeText.setOrigin(0.5);
-        this.displayModeText.setDepth(251);
-        this.displayModeText.setScrollFactor(0);
-        const hitArea = this.add.rectangle(buttonX, buttonY, buttonWidth, buttonHeight)
-            .setInteractive({
-                useHandCursor: true
-            })
-            .on('pointerdown', () => {
-                this.displayMode = this.displayMode === 'Solfege' ? 'Pitch' : 'Solfege';
-                this.displayModeText.setText(`Mode: ${this.displayMode}`);
-                this.background.updateTextDisplay(this.displayMode, this.pitchNames);
-            });
-        hitArea.setOrigin(0.5);
-        hitArea.setScrollFactor(0);
-        hitArea.setAlpha(0.001); // Make it invisible but interactive
-    }
-    createObstacles() {
-        const gameWidth = this.sys.game.config.width;
-        const gameHeight = this.sys.game.config.height;
-        this.pairRequired = false;
-        const initialObstacles = 7; // Increased by roughly 30% (from 4 to 5)
-        this.obstacles = [];
-        for (let i = 0; i < initialObstacles; i++) {
-            const x = gameWidth + (i * this.initialObstacleSpacingScaled);
-            // Determine if it's a cloud or a tree
-            // The Obstacle constructor will now enforce that 'pipe' is from bottom and 'cloud' is from top.
-            // So, we just need to decide if this obstacle *instance* should be a cloud or a pipe.
-            const isCloud = Math.random() < 0.4; // 40% chance for a cloud
-            let obstacleHeight;
-            let fromTopDetermination = isCloud; // True if cloud, false if pipe (tree)
-            if (isCloud) {
-                // Clouds: La (6th bar), Ti (7th bar), High Do (8th bar from bottom)
-                // Bar indices (0-7 from bottom): La=5, Ti=6, Do=7
-                // Height in terms of barHeight units from the top:
-                // For La (5th index from bottom, so 3rd from top for a top obstacle): (8 - 5) * barHeight = 3 * barHeight
-                // For Ti (6th index from bottom, so 2nd from top): (8 - 6) * barHeight = 2 * barHeight
-                // For High Do (7th index from bottom, so 1st from top): (8 - 7) * barHeight = 1 * barHeight
-                const cloudLevels = [1, 2]; // Corresponds to High Do, Ti heights from top. Max height ends at top of La bar.
-                obstacleHeight = cloudLevels[Math.floor(Math.random() * cloudLevels.length)] * this.barHeight;
-            } else { // It's a tree (pipe)
-                // Trees (pipes): Re(1), Mi(2), Fa(3), Sol(4) (0-indexed from bottom)
-                // Height in terms of barHeight units from the bottom:
-                const treeLevels = [2, 3, 4, 5];
-                obstacleHeight = treeLevels[Math.floor(Math.random() * treeLevels.length)] * this.barHeight;
-                // For pipes, y position in constructor doesn't matter as much as configurePipe will set it.
-            }
-            // The y position for pipes should be gameHeight, for clouds it's 0. The constructor handles this.
-            const yPos = fromTopDetermination ? 0 : this.sys.game.config.height;
-            // Obstacle speed is now directly in pixels per second, Obstacle class handles per-frame movement
-            const obstacleSpeed = fromTopDetermination ? this.currentObstacleSpeed * 1.2 : this.currentObstacleSpeed;
-            const obstacle = new Obstacle(this, x, yPos, this.obstacleWidth, obstacleHeight, obstacleSpeed, this, fromTopDetermination); // yPos is correctly set here
-            this.obstacles.push(obstacle);
-            this.obstaclesGroup.add(obstacle); // The obstacle's body should be configured by its constructor and configurePipe
-            this.lastObstacleFromTop = fromTopDetermination; // Update for the next obstacle generation logic
-            if (!obstacle.body) {
-                console.error("Obstacle added to group WITHOUT a body:", obstacle.texture.key, "at x:", obstacle.x);
-            }
-        }
-    }
-    createScoreText() {
-        this.scoreText = this.add.text(this.sys.game.config.width - 20, 20, 'Time: 0', {
-            fontSize: '24px',
-            fontFamily: '"VT323", monospace',
-            fill: '#FFFFFF',
-            align: 'right',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        });
-        this.scoreText.setOrigin(1, 0);
-        this.scoreText.setDepth(100);
-        this.scoreText.setScrollFactor(0);
-    }
-    incrementScore() {
-        if (this.isGameOver) return;
-        this.score++;
-        this.scoreText.setText('Time: ' + this.score);
-    }
-    createBirdParticles() {
-        this.featherParticles = this.add.particles('bird1');
-        this.featherEmitter = this.featherParticles.createEmitter({
-            x: 0,
-            y: 0,
-            speed: {
-                min: 100,
-                max: 200
-            },
-            angle: {
-                min: 0,
-                max: 360
-            },
-            scale: {
-                start: 0.1,
-                end: 0.01
-            },
-            rotate: {
-                min: 0,
-                max: 360
-            },
-            tint: 0xFFFF00,
-            alpha: {
-                start: 1,
-                end: 0
-            },
-            lifespan: 1000,
-            quantity: 30,
+
+    createParticles() {
+        this.noteParticles = this.add.particles('spark');
+        this.noteEmitter = this.noteParticles.createEmitter({
+            follow: this.bird,
+            followOffset: { x: -28, y: 0 },
+            speed: { min: 40, max: 120 },
+            angle: { min: 150, max: 210 },
+            scale: { start: 0.45, end: 0.05 },
+            alpha: { start: 0.9, end: 0 },
+            lifespan: { min: 400, max: 900 },
+            quantity: 1,
+            frequency: 70,
             on: false
         });
-        this.confettiEmitter = this.featherParticles.createEmitter({
-            x: this.sys.game.config.width / 2,
-            y: this.sys.game.config.height / 2,
-            speed: {
-                min: 200,
-                max: 400
-            },
-            angle: {
-                min: 0,
-                max: 360
-            },
-            scale: {
-                start: 0.2,
-                end: 0.05
-            },
-            rotate: {
-                min: 0,
-                max: 360
-            },
-            tint: 0xFFFF00,
-            alpha: {
-                start: 1,
-                end: 0
-            },
-            lifespan: 3000,
-            quantity: 100,
-            frequency: -1,
-            blendMode: 'ADD'
+        this.noteParticles.setDepth(8);
+
+        this.burstParticles = this.add.particles('spark');
+        this.burstEmitter = this.burstParticles.createEmitter({
+            speed: { min: 120, max: 320 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.6, end: 0.05 },
+            alpha: { start: 1, end: 0 },
+            lifespan: 800,
+            quantity: 18,
+            on: false
         });
     }
-    createMusicNoteParticles() {
-        this.musicNoteParticles = this.add.particles('musicNotes');
-        this.musicNoteEmitter = this.musicNoteParticles.createEmitter({
-            follow: this.bird, // Bird's screen position will be stable
-            followOffset: {
-                x: -30, // Offset from bird's screen position
-                y: 0
-            },
-            scrollFactorX: 0, // Particles should also ignore camera scroll
-            scrollFactorY: 0,
-            speed: {
-                min: 50,
-                max: 150
-            },
-            angle: {
-                min: 160,
-                max: 200
-            },
-            scale: {
-                start: 0.08,
-                end: 0.01
-            },
-            rotate: {
-                min: -180,
-                max: 180
-            },
-            alpha: {
-                start: 0.9,
-                end: 0
-            },
-            lifespan: {
-                min: 1000,
-                max: 2000
-            },
-            quantity: 1,
-            frequency: 50,
-            on: false,
-            blendMode: 'ADD'
-        });
-        this.musicNoteParticles.setDepth(5);
-        this.musicNoteParticles.setScrollFactor(0); // The particle manager itself
+
+    createPairs() {
+        this.pairs.forEach(pair => pair.destroy());
+        this.pairs = [];
+        const startX = this.sys.game.config.width + 160;
+        for (let i = 0; i < this.preset.pairCount; i++) {
+            const note = this.pickNoteIndex();
+            const pair = new ObstaclePair(this, startX + i * this.currentObstacleSpacing, note);
+            this.pairs.push(pair);
+        }
     }
+
+    pickNoteIndex() {
+        const min = this.preset.noteMin;
+        const max = this.preset.noteMax;
+        let note = Phaser.Math.Between(min, max);
+        if (note === this.lastNoteIndex && max > min) {
+            note = note === max ? min : note + 1;
+        }
+        this.lastNoteIndex = note;
+        return note;
+    }
+
     setupCollisions() {
-        if (!this.bird || !this.obstacles) {
-            console.error("Bird or obstacles array is missing!");
+        this.pairs.forEach(pair => {
+            this.physics.add.overlap(this.bird, pair.top, this.handleCollision, null, this);
+            this.physics.add.overlap(this.bird, pair.bottom, this.handleCollision, null, this);
+        });
+    }
+
+    createHud() {
+        const width = this.sys.game.config.width;
+        this.scoreText = neonText(this, 16, 12, 'Score 0', 28).setDepth(120);
+        this.bestText = neonText(this, 16, 40, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
+            .setDepth(120)
+            .setAlpha(0.85);
+        this.diffText = neonText(this, 16, 62, this.preset.label, 18).setDepth(120);
+        this.diffText.setColor(Phaser.Display.Color.IntegerToColor(this.preset.color).rgba);
+
+        this.sungText = neonText(this, width / 2, 18, 'Sing!', 30).setOrigin(0.5, 0).setDepth(120);
+        this.nextText = neonText(this, width / 2, 48, '', 18).setOrigin(0.5, 0).setDepth(120).setAlpha(0.9);
+        this.micText = neonText(this, width / 2, this.sys.game.config.height - 22, '', 16)
+            .setOrigin(0.5, 1)
+            .setDepth(120)
+            .setAlpha(0.75);
+
+        this.keyDropdown = new Dropdown(
+            this,
+            width - 100,
+            24,
+            180,
+            34,
+            KEY_SIGNATURES.map(item => item.name),
+            this.selectedKeySignature,
+            (key) => this.handleKeySignatureChange(key)
+        );
+
+        this.modeButton = this.add.rectangle(width - 100, 64, 180, 32, 0x222222, 1)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(120);
+        this.modeText = neonText(this, width - 100, 64, 'Mode: ' + this.displayMode, 16)
+            .setOrigin(0.5)
+            .setDepth(121);
+        this.modeButton.on('pointerdown', () => {
+            this.displayMode = this.displayMode === 'Solfege' ? 'Pitch' : 'Solfege';
+            saveSettings({ displayMode: this.displayMode });
+            this.modeText.setText('Mode: ' + this.displayMode);
+            this.background.updateLabels(this.displayMode, this.pitchNames);
+            this.pairs.forEach(pair => pair.configure());
+        });
+    }
+
+    bindInput() {
+        const noteFromKey = (key) => {
+            const digitMap = { '1': 7, '2': 6, '3': 5, '4': 4, '5': 3, '6': 2, '7': 1, '8': 0 };
+            const letterMap = { a: 7, s: 6, d: 5, f: 4, g: 3, h: 2, j: 1, k: 0 };
+            const lower = String(key).toLowerCase();
+            if (digitMap[lower] != null) return digitMap[lower];
+            if (letterMap[lower] != null) return letterMap[lower];
+            return null;
+        };
+        this.input.keyboard.on('keydown', (event) => {
+            if (event.key === ' ') {
+                this.playUpcomingNote();
+                event.preventDefault();
+                return;
+            }
+            if (String(event.key).toLowerCase() === 'p') {
+                this.togglePause();
+                return;
+            }
+            const idx = noteFromKey(event.key);
+            if (idx != null) this.heldNoteIndex = idx;
+        });
+        this.input.keyboard.on('keyup', (event) => {
+            const idx = noteFromKey(event.key);
+            if (idx != null && idx === this.heldNoteIndex) this.heldNoteIndex = null;
+        });
+
+        this.cursors = this.input.keyboard.addKeys({ up: 'UP', down: 'DOWN' });
+    }
+
+    startCountdown() {
+        const width = this.sys.game.config.width;
+        const height = this.sys.game.config.height;
+        this.countdownText = neonText(this, width / 2, height / 2, '3', 84).setOrigin(0.5).setDepth(200);
+        const beats = ['3', '2', '1', 'SING!'];
+        beats.forEach((label, i) => {
+            this.time.delayedCall(i * 700, () => {
+                if (this.isGameOver) return;
+                this.countdownText.setText(label);
+                this.countdownText.setScale(1.15);
+                this.tweens.add({ targets: this.countdownText, scale: 1, duration: 280 });
+            });
+        });
+        this.time.delayedCall(beats.length * 700, () => {
+            if (this.isGameOver) return;
+            this.playing = true;
+            this.gameStartTime = this.time.now;
+            this.countdownText.destroy();
+        });
+    }
+
+    async initAudio() {
+        try {
+            let stream = this.registry.get('micStream');
+            if (!stream) {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                this.registry.set('micStream', stream);
+                this.registry.set('micDenied', false);
+            }
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (this.audioContext.state === 'suspended') {
+                this.input.once('pointerdown', () => this.audioContext.resume());
+            }
+            this.analyserNode = this.audioContext.createAnalyser();
+            this.analyserNode.fftSize = 2048;
+            const source = this.audioContext.createMediaStreamSource(stream);
+            source.connect(this.analyserNode);
+            this.dataArray = new Uint8Array(this.analyserNode.fftSize);
+            this.micText.setText('Mic on  ·  SPACE previews the next note  ·  P pauses');
+        } catch (err) {
+            this.registry.set('micDenied', true);
+            this.micText.setText('No mic — use A–K / 1–8  ·  SPACE previews  ·  P pauses');
+        }
+    }
+
+    handleKeySignatureChange(keyName) {
+        this.selectedKeySignature = keyName;
+        saveSettings({ keySignature: keyName });
+        this.rebuildScale();
+        this.background.updateLabels(this.displayMode, this.pitchNames);
+        this.pairs.forEach(pair => pair.configure());
+        this.playTone(this.vocalRangeFrequencies[7], 0.35, 0.18);
+    }
+
+    playUpcomingNote() {
+        const upcoming = this.getUpcomingPair();
+        if (!upcoming) return;
+        const freq = this.vocalRangeFrequencies[upcoming.noteIndex];
+        this.ignoreMicUntil = this.time.now + 420;
+        this.playTone(freq, 0.45, 0.16);
+        const label = this.displayMode === 'Pitch'
+            ? this.pitchNames[upcoming.noteIndex]
+            : SOLFEGE_HIGH_TO_LOW[upcoming.noteIndex];
+        this.flashPopup(upcoming.x, upcoming.gapLabel.y - 28, label, '#9CFF8A');
+    }
+
+    playTone(frequency, duration, volume) {
+        try {
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (this.audioContext.state === 'suspended') this.audioContext.resume();
+            const osc = this.audioContext.createOscillator();
+            const gain = this.audioContext.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.0001, this.audioContext.currentTime);
+            gain.gain.exponentialRampToValueAtTime(volume, this.audioContext.currentTime + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, this.audioContext.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(this.audioContext.destination);
+            osc.start();
+            osc.stop(this.audioContext.currentTime + duration + 0.02);
+        } catch (err) {
+            // ignore
+        }
+    }
+
+    togglePause() {
+        if (this.isGameOver || (!this.playing && !this.paused)) return;
+        if (!this.paused) {
+            this.paused = true;
+            this.physics.pause();
+            this.pauseOverlay = this.add.rectangle(
+                this.sys.game.config.width / 2,
+                this.sys.game.config.height / 2,
+                this.sys.game.config.width,
+                this.sys.game.config.height,
+                0x000000,
+                0.55
+            ).setDepth(250);
+            this.pauseText = neonText(this, this.sys.game.config.width / 2, this.sys.game.config.height / 2, 'PAUSED', 56)
+                .setOrigin(0.5)
+                .setDepth(251);
             return;
+        }
+        this.paused = false;
+        this.physics.resume();
+        if (this.pauseOverlay) this.pauseOverlay.destroy();
+        if (this.pauseText) this.pauseText.destroy();
+        this.pauseOverlay = null;
+        this.pauseText = null;
+    }
+
+    getUpcomingPair() {
+        const birdX = this.bird.x;
+        let best = null;
+        this.pairs.forEach(pair => {
+            if (pair.x + 20 > birdX && (!best || pair.x < best.x)) best = pair;
+        });
+        return best;
+    }
+
+    update(_time, delta) {
+        if (this.isGameOver || this.paused) return;
+
+        this.updatePitchControl(delta);
+        this.updateUpcomingHud();
+
+        if (!this.playing) return;
+
+        this.updateDifficulty();
+        const dt = delta / 1000;
+        this.pairs.forEach(pair => {
+            pair.setX(pair.x - this.currentObstacleSpeed * dt);
+            if (pair.x < -80) {
+                const farthest = this.pairs.reduce((max, item) => Math.max(max, item.x), 0);
+                pair.reset(farthest + this.currentObstacleSpacing, this.pickNoteIndex());
+            }
+            if (!pair.passed && pair.x + 10 < this.bird.x) {
+                this.awardPass(pair);
+            }
+        });
+    }
+
+    updatePitchControl(delta) {
+        const height = this.sys.game.config.height;
+        let controlFreq = -1;
+        let singing = false;
+
+        if (this.heldNoteIndex != null) {
+            controlFreq = this.vocalRangeFrequencies[this.heldNoteIndex];
+            singing = true;
+        } else if (this.cursors.up.isDown || this.cursors.down.isDown) {
+            const step = this.cursors.up.isDown ? -1 : 1;
+            const current = Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
+            const next = Phaser.Math.Clamp(current + step, 0, 7);
+            controlFreq = this.vocalRangeFrequencies[next];
+            singing = true;
+        } else if (this.time.now >= this.ignoreMicUntil && this.analyserNode && this.dataArray && this.audioContext) {
+            this.analyserNode.getByteTimeDomainData(this.dataArray);
+            const detected = detectPitch(this.dataArray, this.audioContext.sampleRate, this.minDetectFreq, this.maxDetectFreq);
+            const folded = foldIntoRange(detected.freq, this.minDetectFreq, this.maxDetectFreq);
+            if (folded > 0) {
+                if (this.smoothLogFreq == null) this.smoothLogFreq = Math.log2(folded);
+                else this.smoothLogFreq += (Math.log2(folded) - this.smoothLogFreq) * 0.38;
+                controlFreq = Math.pow(2, this.smoothLogFreq);
+                singing = true;
+            }
         }
 
-        this.obstacles.forEach((obstacle, i) => {
-            if (obstacle.body) {
-                this.physics.add.collider(
-                    this.bird,
-                    obstacle,
-                    this.handleCollision,
-                    null,
-                    this
-                );
-                console.log(`🔗 Collider registered for obstacle[${i}]`);
+        if (singing && controlFreq > 0) {
+            this.silenceMs = 0;
+            this.bird.body.setAllowGravity(false);
+            this.bird.setVelocityY(0);
+            if (this.noteEmitter && !this.noteEmitter.on) this.noteEmitter.start();
+
+            const closest = this.findClosestNoteIndex(controlFreq);
+            const snapped = this.isWithinSemitones(controlFreq, this.vocalRangeFrequencies[closest], this.preset.snapSemitones);
+            if (snapped) {
+                this.targetY = (closest + 0.5) * this.barHeight;
             } else {
-                console.warn(`❌ obstacle[${i}] has no body; skipping collider.`);
+                const high = Math.log2(this.vocalRangeFrequencies[0]);
+                const low = Math.log2(this.vocalRangeFrequencies[this.vocalRangeFrequencies.length - 1]);
+                const logp = Phaser.Math.Clamp(Math.log2(controlFreq), low, high);
+                this.targetY = ((logp - high) / (low - high)) * height;
             }
-        });
+            this.currentY += (this.targetY - this.currentY) * this.preset.follow;
+            this.bird.y = Phaser.Math.Clamp(this.currentY, this.bird.displayHeight / 2, height - this.bird.displayHeight / 2);
+
+            const sung = this.displayMode === 'Pitch'
+                ? this.pitchNames[closest]
+                : SOLFEGE_HIGH_TO_LOW[closest];
+            this.sungText.setText(sung);
+        } else {
+            this.silenceMs += delta;
+            this.smoothLogFreq = null;
+            if (this.noteEmitter && this.noteEmitter.on) this.noteEmitter.stop();
+            this.sungText.setText(this.playing ? '…' : 'Sing!');
+            if (this.playing && this.silenceMs > this.preset.silenceGrace) {
+                this.bird.body.setAllowGravity(true);
+                this.currentY = this.bird.y;
+            } else {
+                this.bird.body.setAllowGravity(false);
+                this.bird.setVelocityY(0);
+            }
+        }
     }
-    handleCollision(bird, obstacle) {
-        console.log("COLLISION DETECTED between Bird and Obstacle (texture:", obstacle.texture.key, ")");
-        console.log("Bird Body:", bird.body.x, bird.body.y, bird.body.width, bird.body.height, "enabled:", bird.body.enable);
-        console.log("Obstacle Body:", obstacle.body.x, obstacle.body.y, obstacle.body.width, obstacle.body.height, "enabled:", obstacle.body.enable, "pos:", obstacle.x, obstacle.y);
-        if (!obstacle.body || !obstacle.body.enable || !bird.body || !bird.body.enable) {
-            console.warn("Collision with an entity whose body is not valid or not enabled. Bird:", bird.body, "Obstacle:", obstacle.body);
+
+    updateUpcomingHud() {
+        const upcoming = this.getUpcomingPair();
+        this.background.setTargetNote(upcoming ? upcoming.noteIndex : null);
+        if (!upcoming) {
+            this.nextText.setText('');
             return;
         }
-        if (this.isGameOver) return;
-        console.log("Processing Game Over logic due to collision.");
-        this.isGameOver = true;
-        this.scoreTimer.remove();
-        const explosionX = typeof bird.x === 'number' ? bird.x : this.sys.game.config.width / 2;
-        const explosionY = typeof bird.y === 'number' ? bird.y : this.sys.game.config.height / 2;
-        this.confettiEmitter.explode(100, explosionX, explosionY);
-        bird.body.setAllowGravity(false);
-        bird.setVelocity(0, 0); // Set both X and Y velocity to 0
-        bird.anims.stop();
-        // No need to iterate and set speed for static obstacles unless they have other dynamic properties
-        this.cameras.main.shake(300, 0.02);
-        bird.setVisible(false); // Hide bird instead of destroying, allows for restart
-        this.time.delayedCall(1000, this.displayGameOver, [], this);
+        const label = this.displayMode === 'Pitch'
+            ? this.pitchNames[upcoming.noteIndex]
+            : SOLFEGE_HIGH_TO_LOW[upcoming.noteIndex];
+        this.nextText.setText('Next  ' + label);
     }
-    displayGameOver() {
-        const overlay = this.add.rectangle(this.sys.game.config.width / 2, this.sys.game.config.height / 2, this.sys.game.config.width, this.sys.game.config.height, 0x000000);
-        overlay.setAlpha(0.7);
-        overlay.setDepth(200);
-        const finalScoreText = this.add.text(this.sys.game.config.width / 2, this.sys.game.config.height / 2 - 90, 'Final Time: ' + this.score + 's', {
-            fontSize: '36px',
-            fontFamily: '"VT323", monospace',
-            fill: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 2,
-                offsetY: 2,
-                color: '#39FF14',
-                blur: 3,
-                stroke: true,
-                fill: true
+
+    updateDifficulty() {
+        const elapsed = this.time.now - this.gameStartTime;
+        if (elapsed <= this.preset.delayMs) return;
+        const progress = Math.min(1, (elapsed - this.preset.delayMs) / this.preset.rampMs);
+        const speed0 = this.preset.speed * this.widthScale;
+        const speed1 = this.preset.maxSpeed * this.widthScale;
+        const space0 = this.preset.spacing * this.widthScale;
+        const space1 = this.preset.minSpacing * this.widthScale;
+        this.currentObstacleSpeed = speed0 + (speed1 - speed0) * progress;
+        this.currentObstacleSpacing = space0 - (space0 - space1) * progress;
+        this.currentGapBars = this.preset.gapBars - (this.preset.gapBars - this.preset.minGapBars) * progress;
+    }
+
+    findClosestNoteIndex(pitch) {
+        const logPitch = Math.log2(pitch);
+        let closest = 0;
+        let best = Infinity;
+        for (let i = 0; i < this.vocalRangeFrequencies.length; i++) {
+            const diff = Math.abs(logPitch - Math.log2(this.vocalRangeFrequencies[i]));
+            if (diff < best) {
+                best = diff;
+                closest = i;
             }
+        }
+        return closest;
+    }
+
+    isWithinSemitones(freq, target, semitones) {
+        return Math.abs(centsOff(freq, target)) <= semitones * 100;
+    }
+
+    awardPass(pair) {
+        pair.passed = true;
+        this.score += 1;
+        const targetFreq = this.vocalRangeFrequencies[pair.noteIndex];
+        const sungFreq = this.heldNoteIndex != null
+            ? this.vocalRangeFrequencies[this.heldNoteIndex]
+            : (this.smoothLogFreq ? Math.pow(2, this.smoothLogFreq) : 0);
+        const perfect = sungFreq > 0 && Math.abs(centsOff(sungFreq, targetFreq)) <= this.preset.perfectCents;
+        if (perfect) {
+            this.score += 1;
+            this.perfects += 1;
+            this.combo += 1;
+            this.bestCombo = Math.max(this.bestCombo, this.combo);
+            this.flashPopup(this.bird.x + 40, this.bird.y - 30, this.combo > 1 ? 'PERFECT x' + this.combo : 'PERFECT', '#9CFF8A');
+        } else {
+            this.combo = 0;
+            this.flashPopup(this.bird.x + 40, this.bird.y - 24, '+1', '#FFFFFF');
+        }
+        this.scoreText.setText('Score ' + this.score);
+        this.playTone(targetFreq, 0.12, 0.08);
+    }
+
+    flashPopup(x, y, text, color) {
+        const popup = neonText(this, x, y, text, 22).setOrigin(0.5).setDepth(130);
+        popup.setColor(color);
+        this.tweens.add({
+            targets: popup,
+            y: y - 40,
+            alpha: 0,
+            duration: 700,
+            onComplete: () => popup.destroy()
         });
-        finalScoreText.setOrigin(0.5);
-        finalScoreText.setDepth(201);
-        const retryButtonWidth = 180;
-        const retryButtonHeight = 60;
-        const retryButtonX = this.sys.game.config.width / 2;
-        const retryButtonY = this.sys.game.config.height / 2 + 0;
-        const retryNormalColor = 0x333333;
-        const retryHoverColor = 0x444444;
-        const retryPressedColor = 0x222222;
-        const retryGraphics = this.add.graphics();
-        retryGraphics.setDepth(201);
-        const drawRetryButton = (color, shadowOffsetY = 3) => {
-            retryGraphics.clear();
-            retryGraphics.fillStyle(0x000000, 0.4);
-            retryGraphics.fillRect(retryButtonX - retryButtonWidth / 2 + shadowOffsetY, retryButtonY - retryButtonHeight / 2 + shadowOffsetY, retryButtonWidth, retryButtonHeight);
-            retryGraphics.fillStyle(color, 1);
-            retryGraphics.fillRect(retryButtonX - retryButtonWidth / 2, retryButtonY - retryButtonHeight / 2, retryButtonWidth, retryButtonHeight);
-            // retryGraphics.lineStyle(3, 0x00FF00, 1); // Removed line style
-            // retryGraphics.strokeRect(retryButtonX - retryButtonWidth / 2, retryButtonY - retryButtonHeight / 2, retryButtonWidth, retryButtonHeight); // Removed stroke
-        };
-        drawRetryButton(retryNormalColor);
-        const retryText = this.add.text(retryButtonX, retryButtonY, 'Try Again', {
-            fontSize: '20px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        }).setOrigin(0.5).setDepth(202);
-        const retryHitArea = this.add.rectangle(retryButtonX, retryButtonY, retryButtonWidth, retryButtonHeight)
-            .setInteractive({
-                useHandCursor: true
-            })
-            .setOrigin(0.5);
-        retryHitArea.on('pointerover', () => drawRetryButton(retryHoverColor));
-        retryHitArea.on('pointerout', () => drawRetryButton(retryNormalColor));
-        retryHitArea.on('pointerdown', () => {
-            drawRetryButton(retryPressedColor, 2);
-            this.tweens.add({
-                targets: [retryGraphics, retryText],
-                y: '+=2',
-                duration: 50,
-                ease: 'Power1',
-                yoyo: true
-            });
-        });
-        retryHitArea.on('pointerup', () => {
-            drawRetryButton(retryHoverColor);
-            // Use the *actual* current key signature for the restart
-            const keySignatureForRestart = this.selectedKeySignature;
-            const doFrequency = this.getDoFrequencyForKey(keySignatureForRestart);
-            this.playDoNoteForKey(doFrequency);
+    }
+
+    handleCollision() {
+        if (this.isGameOver || !this.playing) return;
+        this.isGameOver = true;
+        this.playing = false;
+        this.pairs.forEach(pair => pair.stop());
+        if (this.noteEmitter) this.noteEmitter.stop();
+        this.burstEmitter.explode(40, this.bird.x, this.bird.y);
+        this.cameras.main.shake(240, 0.012);
+        this.bird.setVelocity(0, 0);
+        this.bird.body.setAllowGravity(false);
+        this.bird.anims.pause();
+        this.time.delayedCall(650, () => this.showGameOver());
+    }
+
+    showGameOver() {
+        const width = this.sys.game.config.width;
+        const height = this.sys.game.config.height;
+        const isNewBest = saveHighScore(this.difficultyId, this.score);
+        const best = loadHighScores()[this.difficultyId] || 0;
+
+        this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.72).setDepth(200);
+        neonText(this, width / 2, height / 2 - 130, 'GAME OVER', 58).setOrigin(0.5).setDepth(201);
+        neonText(this, width / 2, height / 2 - 72, 'Score ' + this.score + (isNewBest ? '   NEW BEST' : ''), 32)
+            .setOrigin(0.5)
+            .setDepth(201);
+        neonText(this, width / 2, height / 2 - 38, 'Best ' + best + '   Perfects ' + this.perfects + '   Combo ' + this.bestCombo, 20)
+            .setOrigin(0.5)
+            .setDepth(201)
+            .setAlpha(0.9);
+
+        this.addMenuButton(width / 2, height / 2 + 20, 220, 54, 'TRY AGAIN', () => {
             this.scene.restart({
                 instrument: this.instrument,
-                selectedKeySignature: keySignatureForRestart // Pass the correct current key
+                difficulty: this.difficultyId,
+                selectedKeySignature: this.selectedKeySignature
             });
         });
-        const changeButtonWidth = 250;
-        const changeButtonHeight = 60;
-        const changeButtonX = this.sys.game.config.width / 2;
-        const changeButtonY = this.sys.game.config.height / 2 + 70;
-        const changeNormalColor = 0x333333;
-        const changeHoverColor = 0x444444;
-        const changePressedColor = 0x222222;
-        const changeGraphics = this.add.graphics();
-        changeGraphics.setDepth(201);
-        const drawChangeButton = (color, shadowOffsetY = 3) => {
-            changeGraphics.clear();
-            changeGraphics.fillStyle(0x000000, 0.4);
-            changeGraphics.fillRect(changeButtonX - changeButtonWidth / 2 + shadowOffsetY, changeButtonY - changeButtonHeight / 2 + shadowOffsetY, changeButtonWidth, changeButtonHeight);
-            changeGraphics.fillStyle(color, 1);
-            changeGraphics.fillRect(changeButtonX - changeButtonWidth / 2, changeButtonY - changeButtonHeight / 2, changeButtonWidth, changeButtonHeight);
-            // changeGraphics.lineStyle(3, 0x00FF00, 1); // Removed line style
-            // changeGraphics.strokeRect(changeButtonX - changeButtonWidth / 2, changeButtonY - changeButtonHeight / 2, changeButtonWidth, changeButtonHeight); // Removed stroke
-        };
-        drawChangeButton(changeNormalColor);
-        const changeText = this.add.text(changeButtonX, changeButtonY, 'Change Instrument', {
-            fontSize: '20px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 2,
-                stroke: true,
-                fill: true
-            }
-        }).setOrigin(0.5).setDepth(202);
-        const changeHitArea = this.add.rectangle(changeButtonX, changeButtonY, changeButtonWidth, changeButtonHeight)
-            .setInteractive({
-                useHandCursor: true
-            })
-            .setOrigin(0.5);
-        changeHitArea.on('pointerover', () => drawChangeButton(changeHoverColor));
-        changeHitArea.on('pointerout', () => drawChangeButton(changeNormalColor));
-        changeHitArea.on('pointerdown', () => {
-            drawChangeButton(changePressedColor, 2);
-            this.tweens.add({
-                targets: [changeGraphics, changeText],
-                y: '+=2',
-                duration: 50,
-                ease: 'Power1',
-                yoyo: true
-            });
-        });
-        changeHitArea.on('pointerup', () => {
-            drawChangeButton(changeHoverColor);
+        this.addMenuButton(width / 2, height / 2 + 90, 260, 54, 'CHANGE SETUP', () => {
             this.scene.start('StartScreen');
         });
     }
-    adjustVocalRange(instrument) {
-        switch (instrument) {
-            case 'Soprano':
-                this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'Alto':
-                this.vocalRangeFrequencies = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'Tenor':
-                this.vocalRangeFrequencies = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'Baritone':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Bass':
-                this.vocalRangeFrequencies = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'Violin':
-                this.vocalRangeFrequencies = [1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33, 523.25];
-                break;
-            case 'Viola':
-                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 440.00, 392.00, 349.23, 329.63, 293.66];
-                break;
-            case 'Cello':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Double Bass':
-                this.vocalRangeFrequencies = [233.08, 196.00, 174.61, 146.83, 130.81, 110.00, 98.00, 82.41];
-                break;
-            case 'Flute':
-                this.vocalRangeFrequencies = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'Clarinet':
-                this.vocalRangeFrequencies = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            case 'Oboe':
-                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 440.00];
-                break;
-            case 'Bassoon':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81, 116.54];
-                break;
-            case 'Trumpet':
-                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66];
-                break;
-            case 'French Horn':
-                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Trombone':
-                this.vocalRangeFrequencies = [329.63, 293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81];
-                break;
-            case 'Baritone Horn':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 155.56, 146.83];
-                break;
-            case 'Tuba':
-                this.vocalRangeFrequencies = [196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 98.00, 87.31];
-                break;
-            case 'Soprano Saxophone':
-                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 415.30];
-                break;
-            case 'Alto Saxophone':
-                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Tenor Saxophone':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 207.65, 196.00];
-                break;
-            case 'Baritone Saxophone':
-                this.vocalRangeFrequencies = [261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83, 130.81];
-                break;
-            case 'Guitar':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Ukulele':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Piano':
-                this.vocalRangeFrequencies = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
-                break;
-            default:
-                break;
-        }
-        this.generatePitchNames();
-        // Determine default key for the new instrument
-        let defaultKeyForNewInstrument = 'C Major';
-        if (instrument === 'Tenor') {
-            defaultKeyForNewInstrument = 'F Major';
-        }
-        // Add other instrument-specific key signature defaults here
-        // Update selectedKeySignature ONLY if the user hasn't picked one manually yet
-        // OR if the game logic dictates the key should always reset with instrument.
-        // For now, let's assume if user picked one, it persists unless instrument change *forces* a key.
-        // If instrument change *should* override user choice, then uncomment next lines:
-        // this.selectedKeySignature = defaultKeyForNewInstrument;
-        // this.registry.set('selectedKeySignature', this.selectedKeySignature);
-        // if (this.keySignatureDropdown) {
-        //     this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
-        // }
-        if (this.background) {
-            this.background.updateTextDisplay(this.displayMode, this.pitchNames);
-        }
-    }
-    async initAudio() {
-        try {
-            // Stop and close any existing audio context and stream
-            if (this.mediaStream) {
-                this.mediaStream.getTracks().forEach(track => track.stop());
-                this.mediaStream = null;
-            }
-            if (this.audioContext) {
-                if (this.audioContext.state !== 'closed') {
-                    await this.audioContext.close();
-                }
-                this.audioContext = null;
-                this.analyserNode = null;
-                this.dataArray = null;
-            }
-            this.mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: false
-            });
-            this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
 
-            // Check if context is suspended (usually due to browser auto-play policies)
-            if (this.audioContext.state === 'suspended') {
-                console.log("AudioContext is suspended. Waiting for user interaction to resume.");
-                // We already have a pointerdown listener in create() to resume it.
-            }
-            this.analyserNode = this.audioContext.createAnalyser();
-            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-            source.connect(this.analyserNode);
-            this.analyserNode.fftSize = 2048; // Standard FFT size for pitch detection
-            this.dataArray = new Uint8Array(this.analyserNode.fftSize); // For time-domain data
-            console.log("Audio initialized successfully.");
-        } catch (err) {
-            console.error('Error initializing audio:', err);
-            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                alert('Microphone access denied. Please allow microphone access to play.');
-            } else {
-                alert('Could not initialize audio. Please ensure a microphone is connected and permissions are granted.');
-            }
-        }
-    }
-    update() {
-        if (this.isGameOver) {
-            if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
-            return;
-        }
-        if (this.audioContext && this.analyserNode && this.dataArray) {
-            this.analyserNode.getByteTimeDomainData(this.dataArray);
-            let sumOfSquares = 0;
-            for (let i = 0; i < this.dataArray.length; i++) {
-                let val = (this.dataArray[i] - 128) / 128;
-                sumOfSquares += val * val;
-            }
-            let rms = Math.sqrt(sumOfSquares / this.dataArray.length);
-            let pitch = this.autoCorrelate(this.dataArray, this.audioContext.sampleRate);
-            if (pitch > 0) {
-                this.bird.body.setAllowGravity(false);
-                if (this.musicNoteEmitter) {
-                    if (!this.musicNoteEmitter.on) this.musicNoteEmitter.start();
-                    const clampedRms = Phaser.Math.Clamp(rms, 0.02, 0.3);
-                    const minFreq = 20;
-                    const maxFreq = 100;
-                    const freqRange = maxFreq - minFreq;
-                    const targetFreq = maxFreq - ((clampedRms - 0.02) / (0.3 - 0.02)) * freqRange;
-                    this.musicNoteEmitter.frequency = targetFreq;
-                    const minQuantity = 1;
-                    const maxQuantity = 3;
-                    const quantityRange = maxQuantity - minQuantity;
-                    let targetQuantity = minQuantity + ((clampedRms - 0.02) / (0.3 - 0.02)) * quantityRange;
-                    targetQuantity = Math.round(targetQuantity);
-                    this.musicNoteEmitter.setQuantity(typeof targetQuantity === 'number' && targetQuantity >= 0 ? targetQuantity : minQuantity);
-                }
-                let logPitch = Math.log2(pitch);
-                let closestNoteIndex = this.findClosestNoteIndex(pitch);
-                const gameHeight = this.sys.game.config.height;
-                const isCloseToNote = this.isPitchWithinTolerance(pitch, closestNoteIndex, 0.25); // 0.25 semitone tolerance
-                const highestLogFreq = Math.log2(this.vocalRangeFrequencies[0]); // Highest note (Do8)
-                const lowestLogFreq = Math.log2(this.vocalRangeFrequencies[this.vocalRangeFrequencies.length - 1]); // Lowest note (Do7)
-                const barHeight = gameHeight / 8; // Each solfege bar height
-                if (isCloseToNote) {
-                    // Snap to the center of the solfege bar
-                    this.targetY = (closestNoteIndex + 0.5) * barHeight;
-                } else {
-                    // If not close to a specific note, interpolate position within the full vocal range
-                    // Ensure logPitch is clamped within the defined vocal range for interpolation
-                    const clampedLogPitch = Phaser.Math.Clamp(logPitch, lowestLogFreq, highestLogFreq);
-                    let relativePosition = (clampedLogPitch - highestLogFreq) / (lowestLogFreq - highestLogFreq);
-                    // The relativePosition will be 0 for highest note and 1 for lowest note.
-                    // Higher pitch (closer to highestLogFreq) means smaller relativePosition, so closer to top of screen.
-                    // Lower pitch (closer to lowestLogFreq) means larger relativePosition, so closer to bottom of screen.
-                    this.targetY = relativePosition * gameHeight;
-                }
-                // Smoothly move the bird towards the targetY
-                this.currentY += (this.targetY - this.currentY) * 0.1; // Adjust 0.1 for faster/slower smoothing
-                this.bird.y = Phaser.Math.Clamp(this.currentY, this.bird.displayHeight / 2, gameHeight - this.bird.displayHeight / 2);
-                this.bird.setVelocityY(0); // Override gravity while singing
-            } else {
-                this.bird.body.setAllowGravity(true);
-                if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
-            }
-        } else {
-            this.bird.body.setAllowGravity(true);
-            if (this.musicNoteEmitter && this.musicNoteEmitter.on) this.musicNoteEmitter.stop();
-        }
-        // Obstacles are static, their update method might not do much anymore regarding movement.
-        // If obstacles need to be recycled, a different mechanism is needed.
-        // this.obstacles.forEach(obstacle => obstacle.update());
-        // Instead of obstacles moving, we can move the camera
-        // This gives the illusion of the bird moving forward.
-        // Let's define a scroll speed.
-        // === OBSTACLE MOVEMENT & RECYCLING ===
-        const deltaTime = this.sys.game.loop.delta / 1000; // Time in seconds since last frame
-        this.obstacles.forEach(obstacle => {
-            // 1) slide it left by its current speed (pixels per second) * deltaTime
-            obstacle.x -= obstacle.speed * deltaTime; // obstacle.speed is set in Obstacle constructor and reset
-            // 2) sync the physics body to the new position
-            if (obstacle.body) { // Check if body exists
-                obstacle.body.updateFromGameObject();
-            }
-            // 3) if it’s off the left edge, recycle it to the right
-            if (obstacle.x < -obstacle.displayWidth) {
-                // obstacle.reset() will internally calculate the farthestX and set the new position.
-                // So, no need to calculate farthestX or set obstacle.x here explicitly.
-                obstacle.reset(); // recalc height & flip top/bottom, and repositions
-                if (obstacle.body) { // Check if body exists after reset
-                    obstacle.body.updateFromGameObject(); // Ensure physics body is synced after reset
-                }
-            }
-        });
-        this.updateDifficulty();
-    }
-    getFarthestObstacleX() {
-        let farthestX = 0;
-        this.obstaclesGroup.getChildren().forEach(obstacle => {
-            if (obstacle.x > farthestX) {
-                farthestX = obstacle.x;
-            }
-        });
-        return farthestX;
-    }
-    updateDifficulty() {
-        const elapsedTime = this.time.now - this.gameStartTime;
-        if (elapsedTime > this.difficultyIncreaseTime) {
-            const progressFactor = Math.min(1, (elapsedTime - this.difficultyIncreaseTime) / 40000); // 40 seconds to reach max difficulty
-            this.currentObstacleSpacing = this.initialObstacleSpacingScaled - (progressFactor * (this.initialObstacleSpacingScaled - this.minObstacleSpacingScaled));
-            this.currentMinHeight = this.initialMinHeight + (progressFactor * (this.finalMinHeight - this.initialMinHeight));
-            this.currentMaxHeight = this.initialMaxHeight + (progressFactor * (this.finalMaxHeight - this.initialMaxHeight));
-            this.currentObstacleSpeed = this.initialObstacleSpeedScaled + (progressFactor * (this.maxObstacleSpeedScaled - this.initialObstacleSpeedScaled));
-            if (elapsedTime > this.difficultyIncreaseTime && !this.hasPairedObstacles) this.hasPairedObstacles = true;
-        }
-    }
-    autoCorrelate(buffer, sampleRate) {
-        let SIZE = buffer.length;
-        let sumOfSquares = 0;
-        for (let i = 0; i < SIZE; i++) {
-            let val = (buffer[i] - 128) / 128;
-            sumOfSquares += val * val;
-        }
-        let rms = Math.sqrt(sumOfSquares / SIZE);
-        if (rms < 0.01) return -1;
-        let r1 = 0,
-            r2 = SIZE - 1,
-            threshold = 0.2;
-        for (let i = 0; i < SIZE / 2; i++) {
-            if (Math.abs((buffer[i] - 128) / 128) > threshold) {
-                r1 = i;
-                break;
-            }
-        }
-        for (let i = 1; i < SIZE / 2; i++) {
-            if (Math.abs((buffer[SIZE - i] - 128) / 128) > threshold) {
-                r2 = SIZE - i;
-                break;
-            }
-        }
-        buffer = buffer.slice(r1, r2);
-        SIZE = buffer.length;
-        if (SIZE < 2) return -1;
-        let c = new Array(SIZE).fill(0);
-        for (let i = 0; i < SIZE; i++) {
-            for (let j = 0; j < SIZE - i; j++) {
-                c[i] += ((buffer[j] - 128) / 128) * ((buffer[j + i] - 128) / 128);
-            }
-        }
-        let d = 0;
-        while (d < c.length - 1 && c[d] > c[d + 1]) d++;
-        let maxval = -1,
-            maxpos = -1;
-        for (let i = d; i < SIZE; i++) {
-            if (c[i] > maxval) {
-                maxval = c[i];
-                maxpos = i;
-            }
-        }
-        if (maxpos === -1 || maxpos >= SIZE - 1) return -1;
-        let T0 = maxpos;
-        let x1 = c[T0 - 1],
-            x2 = c[T0],
-            x3 = c[T0 + 1];
-        let a = (x1 + x3 - 2 * x2) / 2;
-        let b = (x3 - x1) / 2;
-        if (a !== 0) T0 = T0 - b / (2 * a);
-        if (T0 === 0) return -1;
-        return sampleRate / T0;
-    }
-    findClosestNoteIndex(pitch) {
-        const logPitch = Math.log2(pitch);
-        const logFreqs = this.vocalRangeFrequencies.map(f => Math.log2(f));
-        let closestIndex = 0;
-        let smallestDiff = Math.abs(logPitch - logFreqs[0]);
-        for (let i = 1; i < logFreqs.length; i++) {
-            const diff = Math.abs(logPitch - logFreqs[i]);
-            if (diff < smallestDiff) {
-                smallestDiff = diff;
-                closestIndex = i;
-            }
-        }
-        return closestIndex;
-    }
-    isPitchWithinTolerance(pitch, noteIndex, tolerancePercent) {
-        const targetFreq = this.vocalRangeFrequencies[noteIndex];
-        const lowerBound = targetFreq * (1 - tolerancePercent);
-        const upperBound = targetFreq * (1 + tolerancePercent);
-        return (pitch >= lowerBound && pitch <= upperBound);
-    }
-    getDoFrequencyForKey(keySignature) {
-        let freqArray;
-        switch (keySignature) {
-            case 'C Major':
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'G Major':
-                freqArray = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'D Major':
-                freqArray = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'A Major':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'E Major':
-                freqArray = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'B Major':
-                freqArray = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'F Major':
-                freqArray = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            default:
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-        }
-        return freqArray[7];
-    }
-    playDoNoteForKey(frequency) {
-        if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        if (!this.audioContext) return;
-        const oscillator = this.audioContext.createOscillator();
-        const gainNode = this.audioContext.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0.5, this.audioContext.currentTime + 0.05);
-        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.5);
-        oscillator.connect(gainNode);
-        gainNode.connect(this.audioContext.destination);
-        oscillator.start();
-        oscillator.stop(this.audioContext.currentTime + 0.5);
-    }
-    handleKeySignatureChange(selectedKey) {
-        this.selectedKeySignature = selectedKey; // Update the scene's current key
-        this.registry.set('selectedKeySignature', selectedKey); // Persist for game overs/restarts
-        this.registry.set('userSelectedKeySignature', selectedKey); // Mark that user made a choice
-        const doFrequency = this.getDoFrequencyForKey(selectedKey);
-        this.playDoNoteForKey(doFrequency);
-        // It might be better to just update the vocal range and background
-        // rather than a full scene restart, unless necessary for other reasons.
-        // For now, keeping restart as it might re-initialize other key-dependent things.
-        this.time.delayedCall(500, () => {
-            this.scene.restart({
-                instrument: this.instrument,
-                selectedKeySignature: selectedKey // Pass the newly selected key
-            });
-        }, [], this);
+    addMenuButton(x, y, w, h, label, onClick) {
+        const btn = this.add.rectangle(x, y, w, h, 0x222222, 1)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(201);
+        neonText(this, x, y, label, 22).setOrigin(0.5).setDepth(202);
+        btn.on('pointerover', () => btn.setFillStyle(0x333333));
+        btn.on('pointerout', () => btn.setFillStyle(0x222222));
+        btn.on('pointerup', onClick);
+        return btn;
     }
 }
 
 const config = {
     type: Phaser.AUTO,
     parent: 'renderDiv',
-    resolution: window.devicePixelRatio || 1,
+    backgroundColor: '#050505',
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 800,
-        height: 600,
-        parent: 'renderDiv',
-        zoom: 1
+        width: GAME_WIDTH,
+        height: GAME_HEIGHT,
+        parent: 'renderDiv'
     },
-    scene: [StartScreen, GameScene],
     physics: {
         default: 'arcade',
         arcade: {
-            gravity: {
-                y: 600 // Base gravity, bird movement primarily pitch-controlled
-            },
-            debug: false,
-            // Consider enabling timeScale for physics if direct speed manipulation isn't enough,
-            // but for Flappy Bird style, direct speed control is usually better.
-            // timeScale: 1 // Default is 1. Adjusting this can slow down or speed up all physics.
+            gravity: { y: 380 },
+            debug: false
         }
     },
     render: {
         pixelArt: true,
         antialias: false,
         antialiasGL: false
-    }
+    },
+    scene: [BootScene, StartScreen, GameScene]
 };
 
 window.phaserGame = new Phaser.Game(config);
