@@ -356,12 +356,12 @@ class Background {
             });
             this.bars.push(bar);
 
-            const label = neonText(this.scene, 16, y + barHeight / 2, SOLFEGE_LOW_TO_HIGH[i], 28);
+            const label = neonText(this.scene, 186, y + barHeight / 2, SOLFEGE_LOW_TO_HIGH[i], 28);
             label.setOrigin(0, 0.5);
             label.setDepth(2);
             this.labels.push(label);
 
-            const hint = neonText(this.scene, 92, y + barHeight / 2, KEYBOARD_LOW_TO_HIGH[i], 18);
+            const hint = neonText(this.scene, 248, y + barHeight / 2, KEYBOARD_LOW_TO_HIGH[i], 18);
             hint.setOrigin(0, 0.5);
             hint.setAlpha(0.55);
             hint.setDepth(2);
@@ -963,12 +963,12 @@ class GameScene extends Phaser.Scene {
 
     createHud() {
         const width = this.sys.game.config.width;
-        this.add.rectangle(8, 8, 168, 78, 0x000000, 0.55).setOrigin(0, 0).setDepth(119);
-        this.scoreText = neonText(this, 18, 14, 'Score 0', 28).setDepth(120);
-        this.bestText = neonText(this, 18, 42, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
+        this.add.rectangle(8, 8, 158, 72, 0x000000, 0.62).setOrigin(0, 0).setDepth(119);
+        this.scoreText = neonText(this, 18, 12, 'Score 0', 28).setDepth(120);
+        this.bestText = neonText(this, 18, 40, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
             .setDepth(120)
             .setAlpha(0.85);
-        this.diffText = neonText(this, 18, 64, this.preset.label, 18).setDepth(120);
+        this.diffText = neonText(this, 18, 60, this.preset.label, 18).setDepth(120);
         this.diffText.setColor(Phaser.Display.Color.IntegerToColor(this.preset.color).rgba);
 
         this.sungText = neonText(this, width / 2, 18, 'Sing!', 30).setOrigin(0.5, 0).setDepth(120);
@@ -1048,21 +1048,26 @@ class GameScene extends Phaser.Scene {
     startCountdown() {
         const width = this.sys.game.config.width;
         const height = this.sys.game.config.height;
-        this.countdownText = neonText(this, width / 2, height / 2, '3', 84).setOrigin(0.5).setDepth(200);
+        this.countdownDim = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.35).setDepth(199);
+        this.countdownText = neonText(this, width / 2, height / 2, '3', 96).setOrigin(0.5).setDepth(200);
         const beats = ['3', '2', '1', 'SING!'];
+        const beatMs = 850;
         beats.forEach((label, i) => {
-            this.time.delayedCall(i * 700, () => {
-                if (this.isGameOver) return;
+            this.time.delayedCall(i * beatMs, () => {
+                if (this.isGameOver || !this.countdownText) return;
                 this.countdownText.setText(label);
-                this.countdownText.setScale(1.15);
+                this.countdownText.setScale(1.18);
                 this.tweens.add({ targets: this.countdownText, scale: 1, duration: 280 });
             });
         });
-        this.time.delayedCall(beats.length * 700, () => {
+        this.time.delayedCall(beats.length * beatMs, () => {
             if (this.isGameOver) return;
             this.playing = true;
             this.gameStartTime = this.time.now;
-            this.countdownText.destroy();
+            if (this.countdownText) this.countdownText.destroy();
+            if (this.countdownDim) this.countdownDim.destroy();
+            this.countdownText = null;
+            this.countdownDim = null;
         });
     }
 
