@@ -1,7 +1,10 @@
 export class Background {
-    constructor(scene) {
+    constructor(scene, displayMode = 'Solfege', pitchNames = []) {
         this.scene = scene;
+        this.solfegeNames = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
+        this.backgroundTexts = [];
         this.createBackgrounds();
+        this.updateTextDisplay(displayMode, pitchNames);
     }
 
     createBackgrounds() {
@@ -10,25 +13,34 @@ export class Background {
         const barHeight = gameHeight / 8;
 
         const vibrantColors = [
-            0xFF5555, // More Red (High Do)
-            0xFFBF80, // Brighter Orange (Re)
-            0xFFEF80, // Brighter Yellow (Mi)
-            0x80FF97, // Brighter Green (Fa)
-            0x80C4FF, // Brighter Blue (Sol)
-            0xBB80FF, // Brighter Purple (La)
-            0xFF80D5, // Brighter Pink (Ti)
-            0xFF5555 // More Red (Low Do)
+            0xFF5555,
+            0xFFBF80,
+            0xFFEF80,
+            0x80FF97,
+            0x80C4FF,
+            0xBB80FF,
+            0xFF80D5,
+            0xFF5555
         ];
-
-        const solfegeNames = ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Ti', 'Do'];
 
         for (let i = 0; i < 8; i++) {
             const y = gameHeight - (i + 1) * barHeight;
             const bar = this.scene.add.rectangle(0, y, gameWidth, barHeight, vibrantColors[i]);
             bar.setOrigin(0, 0);
             bar.setAlpha(0.7);
+        }
+    }
 
-            const text = this.scene.add.text(10, y + barHeight / 2, solfegeNames[i], {
+    updateTextDisplay(displayMode, pitchNames = []) {
+        const gameHeight = this.scene.sys.game.config.height;
+        const barHeight = gameHeight / 8;
+        this.backgroundTexts.forEach(text => text.destroy());
+        this.backgroundTexts = [];
+        const namesToDisplay = displayMode === 'Pitch' ? pitchNames : this.solfegeNames;
+        for (let i = 0; i < 8; i++) {
+            const y = gameHeight - (i + 1) * barHeight;
+            const name = namesToDisplay[i] || this.solfegeNames[i];
+            const text = this.scene.add.text(10, y + barHeight / 2, name, {
                 fontSize: '30px',
                 fontFamily: '"VT323", monospace',
                 fontStyle: 'normal',
@@ -44,6 +56,7 @@ export class Background {
                 }
             });
             text.setOrigin(0, 0.5);
+            this.backgroundTexts.push(text);
         }
     }
-} 
+}
