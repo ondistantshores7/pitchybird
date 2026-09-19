@@ -2,6 +2,11 @@ import { Bird } from '../objects/Bird.js';
 import { Background } from '../objects/Background.js';
 import { Obstacle } from '../objects/Obstacle.js';
 import { AudioManager } from '../audio/AudioManager.js';
+import {
+    computeScaleForInstrumentAndKey,
+    getInstrumentLowFreq,
+    normalizeDisplayMode
+} from '../music/keys.js';
 
 export class GameScene extends Phaser.Scene {
     constructor() {
@@ -9,7 +14,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     init(data) {
-        this.keySignature = data.keySignature || 'C Major';
+        this.keySignature = data.keySignature || this.registry.get('selectedKeySignature') || 'C Major';
+        this.displayMode = normalizeDisplayMode(data.displayMode || this.registry.get('displayMode'));
         this.score = 0;
         this.gameOver = false;
         this.obstacleSpeed = 200;
@@ -20,8 +26,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     create() {
-        // Background
-        this.background = new Background(this);
+        const scale = computeScaleForInstrumentAndKey(
+            getInstrumentLowFreq('Soprano'),
+            this.keySignature
+        );
+        this.background = new Background(this, this.displayMode, scale.pitchNames);
 
         // Bird
         this.bird = new Bird(this, 100, this.sys.game.config.height / 2);
@@ -91,7 +100,10 @@ export class GameScene extends Phaser.Scene {
             50
         ).setInteractive({ useHandCursor: true })
         .on('pointerdown', () => {
-            this.scene.restart();
+            this.scene.restart({
+                keySignature: this.keySignature,
+                displayMode: this.displayMode
+            });
         });
         restartHitArea.setOrigin(0.5);
         restartHitArea.setAlpha(0.001);

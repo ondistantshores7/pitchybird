@@ -1,3 +1,12 @@
+import {
+    KEY_SIGNATURES,
+    computeScaleForInstrumentAndKey,
+    defaultKeyForInstrument,
+    displayModeLabel,
+    getInstrumentLowFreq,
+    normalizeDisplayMode
+} from './src/music/keys.js';
+
 // Dynamically load the VT323 font from Google Fonts
 const link = document.createElement('link');
 link.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
@@ -241,27 +250,26 @@ class Obstacle extends Phaser.Physics.Arcade.Sprite {
     }
 }
 class KeySignatureDropdown {
-    constructor(scene, x, y, width, height, options, defaultOption, callback) {
+    constructor(scene, x, y, width, height, options, defaultOption, callback, maxVisible = 8) {
         this.scene = scene;
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
         this.options = options;
-        this.scrollFactor = 0; // Make dropdown immune to camera scroll
-        this.selectedOption = defaultOption;
+        this.selectedOption = options.includes(defaultOption) ? defaultOption : options[0];
         this.callback = callback;
         this.isOpen = false;
-        this.hitArea = null;
+        this.optionRowHeight = this.height * 0.8;
+        this.maxVisible = Math.max(1, Math.min(maxVisible, options.length));
+        this.scrollY = 0;
+        this.maxScroll = Math.max(0, options.length * this.optionRowHeight - this.maxVisible * this.optionRowHeight);
         this.createDropdown();
     }
     createDropdown() {
-        const neonGreenColor = 0x00FF00;
         this.dropdownButton = this.scene.add.graphics();
         this.dropdownButton.fillStyle(0x222222, 1);
-        // this.dropdownButton.lineStyle(3, neonGreenColor, 1); // Removed line style
         this.dropdownButton.fillRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
-        // this.dropdownButton.strokeRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height); // Removed stroke
         this.dropdownButton.setDepth(300);
         this.dropdownButton.setScrollFactor(0);
         this.dropdownText = this.scene.add.text(this.x, this.y, `${this.selectedOption} ▼`, {
@@ -288,18 +296,27 @@ class KeySignatureDropdown {
             .on('pointerdown', () => this.toggleDropdown());
         this.hitArea.setOrigin(0.5);
         this.hitArea.setAlpha(0.001);
+        this.hitArea.setDepth(302);
+        this.hitArea.setScrollFactor(0);
+
+        this.panelHeight = this.maxVisible * this.optionRowHeight;
         this.optionsContainer = this.scene.add.container(this.x, this.y + this.height / 2);
         this.optionsContainer.setVisible(false);
-        this.optionsContainer.setDepth(300);
+        this.optionsContainer.setDepth(310);
         this.optionsContainer.setScrollFactor(0);
+
+        const panelBg = this.scene.add.rectangle(0, this.panelHeight / 2, this.width, this.panelHeight, 0x1a1a1a);
+        panelBg.setOrigin(0.5);
+        this.optionsContainer.add(panelBg);
+
+        this.optionsContent = this.scene.add.container(0, 0);
+        this.optionsContainer.add(this.optionsContent);
         this.options.forEach((option, index) => {
-            const optionY = (index + 1) * this.height * 0.8;
+            const optionY = index * this.optionRowHeight + this.optionRowHeight / 2;
             const optionGraphics = this.scene.add.graphics();
             optionGraphics.fillStyle(0x2c2c2c, 1);
-            optionGraphics.fillRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8);
-            // optionGraphics.lineStyle(2, neonGreenColor, 1); // Removed line style
-            // optionGraphics.strokeRect(-this.width / 2, optionY - (this.height * 0.8) / 2, this.width, this.height * 0.8); // Removed stroke
-            this.optionsContainer.add(optionGraphics);
+            optionGraphics.fillRect(-this.width / 2, optionY - this.optionRowHeight / 2, this.width, this.optionRowHeight);
+            this.optionsContent.add(optionGraphics);
             const optionText = this.scene.add.text(0, optionY, option, {
                 fontSize: '16px',
                 fontFamily: '"VT323", monospace',
@@ -315,29 +332,61 @@ class KeySignatureDropdown {
                 }
             });
             optionText.setOrigin(0.5);
-            this.optionsContainer.add(optionText);
-            const optionHitArea = this.scene.add.rectangle(0, optionY, this.width, this.height * 0.8)
+            this.optionsContent.add(optionText);
+            const optionHitArea = this.scene.add.rectangle(0, optionY, this.width, this.optionRowHeight)
                 .setInteractive({
                     useHandCursor: true
                 })
-                .on('pointerdown', () => this.selectOption(option));
+                .on('pointerdown', (pointer) => {
+                    if (this.isPointerInPanel(pointer)) this.selectOption(option);
+                });
             optionHitArea.setOrigin(0.5);
             optionHitArea.setAlpha(0.001);
-            this.optionsContainer.add(optionHitArea);
+            this.optionsContent.add(optionHitArea);
         });
-        this.scene.input.on('pointerdown', (pointer) => {
-            if (this.isOpen) {
-                const dropdownBounds = new Phaser.Geom.Rectangle(
-                    this.x - this.width / 2,
-                    this.y - this.height / 2,
-                    this.width,
-                    this.height + (this.options.length * this.height * 0.8)
-                );
-                if (!dropdownBounds.contains(pointer.x, pointer.y)) {
-                    this.closeDropdown();
-                }
+
+        this.maskGraphics = this.scene.make.graphics({
+            x: 0,
+            y: 0,
+            add: false
+        });
+        this.maskGraphics.fillStyle(0xffffff);
+        this.maskGraphics.fillRect(this.x - this.width / 2, this.y + this.height / 2, this.width, this.panelHeight);
+        this.optionsContent.setMask(this.maskGraphics.createGeometryMask());
+
+        this.onPointerDown = (pointer) => {
+            if (!this.isOpen) return;
+            if (!this.getFullBounds().contains(pointer.x, pointer.y)) {
+                this.closeDropdown();
             }
-        });
+        };
+        this.scene.input.on('pointerdown', this.onPointerDown);
+        this.onWheel = (pointer, _gameObjects, _deltaX, deltaY) => {
+            if (!this.isOpen || this.maxScroll <= 0) return;
+            if (!this.getPanelBounds().contains(pointer.x, pointer.y)) return;
+            this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.4, 0, this.maxScroll);
+            this.optionsContent.y = -this.scrollY;
+        };
+        this.scene.input.on('wheel', this.onWheel);
+    }
+    getPanelBounds() {
+        return new Phaser.Geom.Rectangle(
+            this.x - this.width / 2,
+            this.y + this.height / 2,
+            this.width,
+            this.panelHeight
+        );
+    }
+    getFullBounds() {
+        return new Phaser.Geom.Rectangle(
+            this.x - this.width / 2,
+            this.y - this.height / 2,
+            this.width,
+            this.height + this.panelHeight
+        );
+    }
+    isPointerInPanel(pointer) {
+        return this.getPanelBounds().contains(pointer.x, pointer.y);
     }
     toggleDropdown() {
         this.isOpen = !this.isOpen;
@@ -364,13 +413,83 @@ class KeySignatureDropdown {
             console.warn(`KeySignatureDropdown: Option "${option}" not found.`);
         }
     }
+    getSelectedOption() {
+        return this.selectedOption;
+    }
     destroy() {
+        if (this.onPointerDown) this.scene.input.off('pointerdown', this.onPointerDown);
+        if (this.onWheel) this.scene.input.off('wheel', this.onWheel);
         if (this.dropdownButton) this.dropdownButton.destroy();
         if (this.dropdownText) this.dropdownText.destroy();
-        if (this.optionsContainer) this.optionsContainer.destroy(true); // destroy children too
+        if (this.optionsContainer) this.optionsContainer.destroy(true);
         if (this.hitArea) this.hitArea.destroy();
-        // Remove the global pointerdown listener if it was added
-        // this.scene.input.off('pointerdown', this.globalPointerDownHandler, this);
+        if (this.maskGraphics) this.maskGraphics.destroy();
+    }
+}
+
+class DisplayModeToggle {
+    constructor(scene, x, y, width, height, initialMode, callback) {
+        this.scene = scene;
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.mode = normalizeDisplayMode(initialMode);
+        this.callback = callback;
+        this.createToggle();
+    }
+    createToggle() {
+        this.button = this.scene.add.graphics();
+        this.button.fillStyle(0x222222, 1);
+        this.button.fillRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
+        this.button.setDepth(300);
+        this.button.setScrollFactor(0);
+        this.label = this.scene.add.text(this.x, this.y, this.getButtonText(), {
+            fontSize: '18px',
+            fontFamily: '"VT323", monospace',
+            color: '#FFFFFF',
+            align: 'center',
+            shadow: {
+                offsetX: 1,
+                offsetY: 1,
+                color: '#39FF14',
+                blur: 2,
+                stroke: true,
+                fill: true
+            }
+        });
+        this.label.setOrigin(0.5);
+        this.label.setDepth(301);
+        this.label.setScrollFactor(0);
+        this.hitArea = this.scene.add.rectangle(this.x, this.y, this.width, this.height)
+            .setInteractive({
+                useHandCursor: true
+            })
+            .on('pointerdown', () => this.toggle());
+        this.hitArea.setOrigin(0.5);
+        this.hitArea.setAlpha(0.001);
+        this.hitArea.setDepth(302);
+        this.hitArea.setScrollFactor(0);
+    }
+    getButtonText() {
+        return displayModeLabel(this.mode);
+    }
+    toggle() {
+        this.mode = this.mode === 'Solfege' ? 'Pitch' : 'Solfege';
+        this.label.setText(this.getButtonText());
+        if (this.callback) this.callback(this.mode);
+    }
+    setMode(mode) {
+        this.mode = normalizeDisplayMode(mode);
+        this.label.setText(this.getButtonText());
+    }
+    getMode() {
+        return this.mode;
+    }
+    destroy() {
+        if (this.button) this.button.destroy();
+        if (this.label) this.label.destroy();
+        if (this.hitArea) this.hitArea.destroy();
     }
 }
 
@@ -603,6 +722,11 @@ class StartScreen extends Phaser.Scene {
                 scrollbarHandle.setVisible(false);
                 optionTextElements.forEach(text => text.setVisible(false));
                 this.registry.set('selectedInstrument', instrument);
+                if (!this.userPickedKey && this.keySignatureDropdown) {
+                    const key = defaultKeyForInstrument(instrument);
+                    this.keySignatureDropdown.setSelectedOption(key);
+                    this.registry.set('selectedKeySignature', key);
+                }
                 this.featherEmitter.explode(15, dropdown.x, dropdown.y);
                 const doFrequency = this.getDoFrequencyForInstrument(instrument);
                 this.playDoNote(doFrequency);
@@ -745,26 +869,29 @@ class StartScreen extends Phaser.Scene {
                 optionTextElements.forEach(text => text.setVisible(false));
             }
         });
+        const controlY = dropdownY + 70;
+        const startButtonY = controlY + 90;
+        this.createKeyAndDisplayControls(gameWidth, controlY);
         const buttonWidth = 220;
         const buttonHeight = 80;
         const buttonGraphics = this.add.graphics();
         const createButton = (isHover = false) => {
             buttonGraphics.clear();
             buttonGraphics.fillStyle(0x000000, 0.5);
-            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2 + 4, gameHeight / 2 + 100 - buttonHeight / 2 + 4, buttonWidth, buttonHeight);
+            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2 + 4, startButtonY - buttonHeight / 2 + 4, buttonWidth, buttonHeight);
             buttonGraphics.fillStyle(isHover ? 0x444444 : 0x222222, 1);
-            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight);
+            buttonGraphics.fillRect(gameWidth / 2 - buttonWidth / 2, startButtonY - buttonHeight / 2, buttonWidth, buttonHeight);
             // buttonGraphics.lineStyle(3, neonGreenColor, 1); // Removed line style
-            // buttonGraphics.strokeRect(gameWidth / 2 - buttonWidth / 2, gameHeight / 2 + 100 - buttonHeight / 2, buttonWidth, buttonHeight); // Removed stroke
+            // buttonGraphics.strokeRect(gameWidth / 2 - buttonWidth / 2, startButtonY - buttonHeight / 2, buttonWidth, buttonHeight); // Removed stroke
         };
         createButton();
-        const button = this.add.rectangle(gameWidth / 2, gameHeight / 2 + 100, buttonWidth, buttonHeight);
+        const button = this.add.rectangle(gameWidth / 2, startButtonY, buttonWidth, buttonHeight);
         button.setOrigin(0.5);
         button.setInteractive({
             useHandCursor: true
         });
         button.setAlpha(0.001);
-        const text = this.add.text(gameWidth / 2, gameHeight / 2 + 100, "Let's Fly!", {
+        const text = this.add.text(gameWidth / 2, startButtonY, "Let's Fly!", {
             fontSize: '28px',
             fontFamily: '"VT323", monospace',
             color: '#FFFFFF',
@@ -847,101 +974,80 @@ class StartScreen extends Phaser.Scene {
                 yoyo: true,
                 onComplete: () => {
                     const instrument = this.registry.get('selectedInstrument') || 'Soprano';
-                    let defaultKeyForInstrument = 'C Major';
-                    if (instrument === 'Tenor') defaultKeyForInstrument = 'F Major';
-                    // Add other instrument-specific key signature defaults here if needed
-                    this.registry.set('userSelectedKeySignature', defaultKeyForInstrument);
+                    const selectedKey = this.registry.get('userSelectedKeySignature') ||
+                        (this.keySignatureDropdown && this.keySignatureDropdown.getSelectedOption()) ||
+                        defaultKeyForInstrument(instrument);
+                    const displayMode = this.displayModeToggle ? this.displayModeToggle.getMode() : 'Solfege';
+                    this.registry.set('selectedInstrument', instrument);
+                    this.registry.set('selectedKeySignature', selectedKey);
+                    this.registry.set('displayMode', displayMode);
                     this.scene.start('GameScene', {
                         instrument: instrument,
-                        selectedKeySignature: defaultKeyForInstrument
+                        selectedKeySignature: selectedKey,
+                        displayMode
                     });
                 }
             });
             this.featherEmitter.explode(50, button.x, button.y);
         });
     }
+    createKeyAndDisplayControls(gameWidth, controlY) {
+        const controlWidth = 190;
+        const controlHeight = 44;
+        const keyX = gameWidth / 2 - 105;
+        const displayX = gameWidth / 2 + 105;
+        const instrument = this.registry.get('selectedInstrument') || 'Soprano';
+        const savedKey = this.registry.get('userSelectedKeySignature') ||
+            this.registry.get('selectedKeySignature') ||
+            defaultKeyForInstrument(instrument);
+        const savedDisplayMode = normalizeDisplayMode(this.registry.get('displayMode'));
+        this.userPickedKey = !!this.registry.get('userSelectedKeySignature');
+
+        const labelStyle = {
+            fontSize: '14px',
+            fontFamily: '"VT323", monospace',
+            color: '#39FF14',
+            align: 'center'
+        };
+        this.add.text(keyX, controlY - 32, 'KEY', labelStyle).setOrigin(0.5);
+        this.add.text(displayX, controlY - 32, 'DISPLAY', labelStyle).setOrigin(0.5);
+
+        this.keySignatureDropdown = new KeySignatureDropdown(
+            this,
+            keyX,
+            controlY,
+            controlWidth,
+            controlHeight,
+            KEY_SIGNATURES,
+            savedKey,
+            (selectedKey) => {
+                this.userPickedKey = true;
+                this.registry.set('userSelectedKeySignature', selectedKey);
+                this.registry.set('selectedKeySignature', selectedKey);
+                const currentInstrument = this.registry.get('selectedInstrument') || 'Soprano';
+                this.playDoNote(computeScaleForInstrumentAndKey(
+                    getInstrumentLowFreq(currentInstrument),
+                    selectedKey
+                ).lowDoFreq);
+            },
+            5
+        );
+
+        this.displayModeToggle = new DisplayModeToggle(
+            this,
+            displayX,
+            controlY,
+            controlWidth,
+            controlHeight,
+            savedDisplayMode,
+            (mode) => this.registry.set('displayMode', mode)
+        );
+    }
     getDoFrequencyForInstrument(instrument) {
-        let freqArray;
-        switch (instrument) {
-            case 'Soprano':
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'Alto':
-                freqArray = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'Tenor':
-                freqArray = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'Baritone':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Bass':
-                freqArray = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'Violin':
-                freqArray = [1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33, 523.25];
-                break;
-            case 'Viola':
-                freqArray = [659.26, 587.33, 523.25, 440.00, 392.00, 349.23, 329.63, 293.66];
-                break;
-            case 'Cello':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Double Bass':
-                freqArray = [233.08, 196.00, 174.61, 146.83, 130.81, 110.00, 98.00, 82.41];
-                break;
-            case 'Flute':
-                freqArray = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'Clarinet':
-                freqArray = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            case 'Oboe':
-                freqArray = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 440.00];
-                break;
-            case 'Bassoon':
-                freqArray = [293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81, 116.54];
-                break;
-            case 'Trumpet':
-                freqArray = [659.26, 587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66];
-                break;
-            case 'French Horn':
-                freqArray = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Trombone':
-                freqArray = [329.63, 293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81];
-                break;
-            case 'Baritone Horn':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 155.56, 146.83];
-                break;
-            case 'Tuba':
-                freqArray = [196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 98.00, 87.31];
-                break;
-            case 'Soprano Saxophone':
-                freqArray = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 415.30];
-                break;
-            case 'Alto Saxophone':
-                freqArray = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Tenor Saxophone':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 207.65, 196.00];
-                break;
-            case 'Baritone Saxophone':
-                freqArray = [261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83, 130.81];
-                break;
-            case 'Guitar':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Ukulele':
-                freqArray = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Piano':
-                freqArray = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
-                break;
-            default:
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-        }
-        return freqArray[7];
+        const key = this.registry.get('userSelectedKeySignature') ||
+            this.registry.get('selectedKeySignature') ||
+            defaultKeyForInstrument(instrument);
+        return computeScaleForInstrumentAndKey(getInstrumentLowFreq(instrument), key).lowDoFreq;
     }
     playDoNote(frequency) {
         if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
@@ -1008,6 +1114,8 @@ class GameScene extends Phaser.Scene {
         this.displayMode = 'Solfege'; // 'Solfege' or 'Pitch'
         this.displayModeButton = null;
         this.displayModeText = null;
+        this.displayModeToggle = null;
+        this.displayModeHitArea = null;
         this.pitchNames = [];
         this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
         this.obstacles = [];
@@ -1063,22 +1171,27 @@ class GameScene extends Phaser.Scene {
         this.hasPairedObstacles = false; // Reset this flag as well
         if (data && data.instrument) {
             this.instrument = data.instrument;
-            this.adjustVocalRange(this.instrument); // This might set a default key
         }
-        // Determine the key signature
-        let keyToUse;
         if (data && data.selectedKeySignature) {
-            // If a key signature is explicitly passed (e.g., from restart or StartScreen selection)
-            keyToUse = data.selectedKeySignature;
+            this.selectedKeySignature = data.selectedKeySignature;
         } else if (this.registry.get('userSelectedKeySignature')) {
-            // If user made a selection previously in the game
-            keyToUse = this.registry.get('userSelectedKeySignature');
+            this.selectedKeySignature = this.registry.get('userSelectedKeySignature');
+        } else if (this.registry.get('selectedKeySignature')) {
+            this.selectedKeySignature = this.registry.get('selectedKeySignature');
         } else {
-            // Otherwise, default based on instrument or overall default
-            keyToUse = (this.instrument === 'Tenor') ? 'F Major' : 'C Major';
+            this.selectedKeySignature = defaultKeyForInstrument(this.instrument);
         }
-        this.selectedKeySignature = keyToUse;
-        this.registry.set('selectedKeySignature', this.selectedKeySignature); // Store the active key
+        if (data && data.displayMode) {
+            this.displayMode = normalizeDisplayMode(data.displayMode);
+        } else if (this.registry.get('displayMode')) {
+            this.displayMode = normalizeDisplayMode(this.registry.get('displayMode'));
+        } else {
+            this.displayMode = normalizeDisplayMode(this.displayMode);
+        }
+        this.registry.set('selectedInstrument', this.instrument);
+        this.registry.set('selectedKeySignature', this.selectedKeySignature);
+        this.registry.set('displayMode', this.displayMode);
+        this.applyInstrumentAndKey();
         // Destroy existing game objects if they exist from a previous run
         if (this.bird) this.bird.destroy();
         if (this.obstaclesGroup) {
@@ -1098,10 +1211,14 @@ class GameScene extends Phaser.Scene {
         if (this.scoreTimer) this.scoreTimer.remove();
         if (this.featherParticles) this.featherParticles.destroy();
         if (this.musicNoteParticles) this.musicNoteParticles.destroy();
+        if (this.displayModeToggle) {
+            this.displayModeToggle.destroy();
+            this.displayModeToggle = null;
+        }
         if (this.displayModeButton) this.displayModeButton.destroy();
         if (this.displayModeText) this.displayModeText.destroy();
+        if (this.displayModeHitArea) this.displayModeHitArea.destroy();
         this.background = new Background(this);
-        this.generatePitchNames(); // Generate pitch names before updating background
         this.background.updateTextDisplay(this.displayMode, this.pitchNames);
         this.bird = new Bird(this, this.sys.game.config.width * 0.25, 150); // Adjusted initial Y position
         this.currentY = this.bird.y;
@@ -1129,73 +1246,54 @@ class GameScene extends Phaser.Scene {
             callbackScope: this,
             loop: true
         });
-        const keySignatures = ['C Major', 'G Major', 'D Major', 'A Major', 'E Major', 'B Major', 'F Major'];
         this.keySignatureDropdown = new KeySignatureDropdown(
             this,
             this.sys.game.config.width - 100,
             30,
             180,
             36,
-            keySignatures,
-            this.selectedKeySignature, // This is the resolved key signature
-            (selectedKey) => this.handleKeySignatureChange(selectedKey)
+            KEY_SIGNATURES,
+            this.selectedKeySignature,
+            (selectedKey) => this.handleKeySignatureChange(selectedKey),
+            6
         );
-        // Ensure the dropdown visually reflects the selectedKeySignature
         this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
-        this.keySignatureDropdown.dropdownButton.setDepth(250);
-        this.keySignatureDropdown.dropdownText.setDepth(251);
-        this.keySignatureDropdown.optionsContainer.setDepth(250);
         this.createDisplayModeButton();
     }
+    applyInstrumentAndKey() {
+        const scale = computeScaleForInstrumentAndKey(
+            getInstrumentLowFreq(this.instrument),
+            this.selectedKeySignature
+        );
+        this.vocalRangeFrequencies = scale.frequencies;
+        this.pitchNames = scale.pitchNames;
+        this.lowDoLogFreq = Math.log2(scale.frequencies[scale.frequencies.length - 1]);
+        this.highDoLogFreq = Math.log2(scale.frequencies[0]);
+        if (this.background) {
+            this.background.updateTextDisplay(this.displayMode, this.pitchNames);
+        }
+    }
     generatePitchNames() {
-        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        this.pitchNames = this.vocalRangeFrequencies.map(freq => {
-            if (freq <= 0) return "N/A";
-            const midiNum = 69 + 12 * Math.log2(freq / 440);
-            const noteIndex = Math.round(midiNum) % 12;
-            const octave = Math.floor(Math.round(midiNum) / 12) - 1;
-            return noteStrings[noteIndex] + octave;
-        }).reverse(); // Assuming vocalRangeFrequencies is high to low, reverse for display bottom to top
+        this.applyInstrumentAndKey();
     }
     createDisplayModeButton() {
         const buttonWidth = 180;
         const buttonHeight = 36;
-        const buttonX = this.sys.game.config.width - 100; // Same X as dropdown
-        const buttonY = 30 + 36 + 10; // Below dropdown + spacing
-        this.displayModeButton = this.add.graphics();
-        this.displayModeButton.fillStyle(0x222222, 1);
-        this.displayModeButton.fillRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight);
-        this.displayModeButton.setDepth(250);
-        this.displayModeButton.setScrollFactor(0);
-        this.displayModeText = this.add.text(buttonX, buttonY, `Mode: ${this.displayMode}`, {
-            fontSize: '16px',
-            fontFamily: '"VT323", monospace',
-            color: '#FFFFFF',
-            align: 'center',
-            shadow: {
-                offsetX: 1,
-                offsetY: 1,
-                color: '#39FF14',
-                blur: 1,
-                stroke: true,
-                fill: true
-            }
-        });
-        this.displayModeText.setOrigin(0.5);
-        this.displayModeText.setDepth(251);
-        this.displayModeText.setScrollFactor(0);
-        const hitArea = this.add.rectangle(buttonX, buttonY, buttonWidth, buttonHeight)
-            .setInteractive({
-                useHandCursor: true
-            })
-            .on('pointerdown', () => {
-                this.displayMode = this.displayMode === 'Solfege' ? 'Pitch' : 'Solfege';
-                this.displayModeText.setText(`Mode: ${this.displayMode}`);
+        const buttonX = this.sys.game.config.width - 100;
+        const buttonY = 30 + 36 + 10;
+        this.displayModeToggle = new DisplayModeToggle(
+            this,
+            buttonX,
+            buttonY,
+            buttonWidth,
+            buttonHeight,
+            this.displayMode,
+            (mode) => {
+                this.displayMode = mode;
+                this.registry.set('displayMode', mode);
                 this.background.updateTextDisplay(this.displayMode, this.pitchNames);
-            });
-        hitArea.setOrigin(0.5);
-        hitArea.setScrollFactor(0);
-        hitArea.setAlpha(0.001); // Make it invisible but interactive
+            }
+        );
     }
     createObstacles() {
         const gameWidth = this.sys.game.config.width;
@@ -1241,11 +1339,11 @@ class GameScene extends Phaser.Scene {
         }
     }
     createScoreText() {
-        this.scoreText = this.add.text(this.sys.game.config.width - 20, 20, 'Time: 0', {
+        this.scoreText = this.add.text(20, 20, 'Time: 0', {
             fontSize: '24px',
             fontFamily: '"VT323", monospace',
             fill: '#FFFFFF',
-            align: 'right',
+            align: 'left',
             shadow: {
                 offsetX: 1,
                 offsetY: 1,
@@ -1255,7 +1353,7 @@ class GameScene extends Phaser.Scene {
                 fill: true
             }
         });
-        this.scoreText.setOrigin(1, 0);
+        this.scoreText.setOrigin(0, 0);
         this.scoreText.setDepth(100);
         this.scoreText.setScrollFactor(0);
     }
@@ -1488,7 +1586,8 @@ class GameScene extends Phaser.Scene {
             this.playDoNoteForKey(doFrequency);
             this.scene.restart({
                 instrument: this.instrument,
-                selectedKeySignature: keySignatureForRestart // Pass the correct current key
+                selectedKeySignature: keySignatureForRestart,
+                displayMode: this.displayMode
             });
         });
         const changeButtonWidth = 250;
@@ -1547,104 +1646,8 @@ class GameScene extends Phaser.Scene {
         });
     }
     adjustVocalRange(instrument) {
-        switch (instrument) {
-            case 'Soprano':
-                this.vocalRangeFrequencies = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'Alto':
-                this.vocalRangeFrequencies = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'Tenor':
-                this.vocalRangeFrequencies = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'Baritone':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Bass':
-                this.vocalRangeFrequencies = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'Violin':
-                this.vocalRangeFrequencies = [1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33, 523.25];
-                break;
-            case 'Viola':
-                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 440.00, 392.00, 349.23, 329.63, 293.66];
-                break;
-            case 'Cello':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'Double Bass':
-                this.vocalRangeFrequencies = [233.08, 196.00, 174.61, 146.83, 130.81, 110.00, 98.00, 82.41];
-                break;
-            case 'Flute':
-                this.vocalRangeFrequencies = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'Clarinet':
-                this.vocalRangeFrequencies = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            case 'Oboe':
-                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 440.00];
-                break;
-            case 'Bassoon':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81, 116.54];
-                break;
-            case 'Trumpet':
-                this.vocalRangeFrequencies = [659.26, 587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66];
-                break;
-            case 'French Horn':
-                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Trombone':
-                this.vocalRangeFrequencies = [329.63, 293.66, 261.63, 233.08, 196.00, 174.61, 146.83, 130.81];
-                break;
-            case 'Baritone Horn':
-                this.vocalRangeFrequencies = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 155.56, 146.83];
-                break;
-            case 'Tuba':
-                this.vocalRangeFrequencies = [196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 98.00, 87.31];
-                break;
-            case 'Soprano Saxophone':
-                this.vocalRangeFrequencies = [880.00, 783.99, 698.46, 659.26, 587.33, 523.25, 466.16, 415.30];
-                break;
-            case 'Alto Saxophone':
-                this.vocalRangeFrequencies = [587.33, 523.25, 466.16, 415.30, 369.99, 329.63, 293.66, 261.63];
-                break;
-            case 'Tenor Saxophone':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 207.65, 196.00];
-                break;
-            case 'Baritone Saxophone':
-                this.vocalRangeFrequencies = [261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83, 130.81];
-                break;
-            case 'Guitar':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Ukulele':
-                this.vocalRangeFrequencies = [392.00, 349.23, 329.63, 293.66, 261.63, 246.94, 220.00, 196.00];
-                break;
-            case 'Piano':
-                this.vocalRangeFrequencies = [523.25, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 220.00];
-                break;
-            default:
-                break;
-        }
-        this.generatePitchNames();
-        // Determine default key for the new instrument
-        let defaultKeyForNewInstrument = 'C Major';
-        if (instrument === 'Tenor') {
-            defaultKeyForNewInstrument = 'F Major';
-        }
-        // Add other instrument-specific key signature defaults here
-        // Update selectedKeySignature ONLY if the user hasn't picked one manually yet
-        // OR if the game logic dictates the key should always reset with instrument.
-        // For now, let's assume if user picked one, it persists unless instrument change *forces* a key.
-        // If instrument change *should* override user choice, then uncomment next lines:
-        // this.selectedKeySignature = defaultKeyForNewInstrument;
-        // this.registry.set('selectedKeySignature', this.selectedKeySignature);
-        // if (this.keySignatureDropdown) {
-        //     this.keySignatureDropdown.setSelectedOption(this.selectedKeySignature);
-        // }
-        if (this.background) {
-            this.background.updateTextDisplay(this.displayMode, this.pitchNames);
-        }
+        this.instrument = instrument;
+        this.applyInstrumentAndKey();
     }
     async initAudio() {
         try {
@@ -1872,33 +1875,10 @@ class GameScene extends Phaser.Scene {
         return (pitch >= lowerBound && pitch <= upperBound);
     }
     getDoFrequencyForKey(keySignature) {
-        let freqArray;
-        switch (keySignature) {
-            case 'C Major':
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-                break;
-            case 'G Major':
-                freqArray = [440.00, 392.00, 349.23, 329.63, 293.66, 261.63, 233.08, 220.00];
-                break;
-            case 'D Major':
-                freqArray = [349.23, 329.63, 293.66, 261.63, 233.08, 220.00, 196.00, 174.61];
-                break;
-            case 'A Major':
-                freqArray = [293.66, 261.63, 233.08, 220.00, 196.00, 174.61, 164.81, 146.83];
-                break;
-            case 'E Major':
-                freqArray = [220.00, 196.00, 174.61, 164.81, 146.83, 130.81, 116.54, 110.00];
-                break;
-            case 'B Major':
-                freqArray = [1396.91, 1174.66, 987.77, 880.00, 783.99, 698.46, 659.26, 587.33];
-                break;
-            case 'F Major':
-                freqArray = [698.46, 622.25, 523.25, 466.16, 415.30, 349.23, 311.13, 261.63];
-                break;
-            default:
-                freqArray = [523.25, 466.16, 440.00, 392.00, 349.23, 329.63, 293.66, 261.63];
-        }
-        return freqArray[7];
+        return computeScaleForInstrumentAndKey(
+            getInstrumentLowFreq(this.instrument),
+            keySignature
+        ).lowDoFreq;
     }
     playDoNoteForKey(frequency) {
         if (!this.audioContext) this.audioContext = new(window.AudioContext || window.webkitAudioContext)();
@@ -1916,20 +1896,11 @@ class GameScene extends Phaser.Scene {
         oscillator.stop(this.audioContext.currentTime + 0.5);
     }
     handleKeySignatureChange(selectedKey) {
-        this.selectedKeySignature = selectedKey; // Update the scene's current key
-        this.registry.set('selectedKeySignature', selectedKey); // Persist for game overs/restarts
-        this.registry.set('userSelectedKeySignature', selectedKey); // Mark that user made a choice
-        const doFrequency = this.getDoFrequencyForKey(selectedKey);
-        this.playDoNoteForKey(doFrequency);
-        // It might be better to just update the vocal range and background
-        // rather than a full scene restart, unless necessary for other reasons.
-        // For now, keeping restart as it might re-initialize other key-dependent things.
-        this.time.delayedCall(500, () => {
-            this.scene.restart({
-                instrument: this.instrument,
-                selectedKeySignature: selectedKey // Pass the newly selected key
-            });
-        }, [], this);
+        this.selectedKeySignature = selectedKey;
+        this.registry.set('selectedKeySignature', selectedKey);
+        this.registry.set('userSelectedKeySignature', selectedKey);
+        this.applyInstrumentAndKey();
+        this.playDoNoteForKey(this.getDoFrequencyForKey(selectedKey));
     }
 }
 
