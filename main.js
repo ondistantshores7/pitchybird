@@ -67,21 +67,23 @@ const DIFFICULTIES = {
     easy: {
         id: 'easy',
         label: 'EASY',
-        blurb: 'Wide gaps, slow trees, lots of snap.',
+        blurb: 'Wide gaps, slow trees. Still have to move your pitch.',
         color: 0x3dff7a,
         speed: 95,
         maxSpeed: 145,
         spacing: 470,
         minSpacing: 360,
-        gapBars: 2.4,
-        minGapBars: 1.85,
+        gapBars: 2.05,
+        minGapBars: 1.7,
+        gapJitter: 0.1,
         snapSemitones: 0.75,
         follow: 0.24,
         gravity: 240,
         rampMs: 60000,
         delayMs: 20000,
-        noteMin: 2,
-        noteMax: 5,
+        noteMin: 1,
+        noteMax: 6,
+        minNoteDelta: 2,
         perfectCents: 45,
         silenceGrace: 300,
         pairCount: 6
@@ -89,21 +91,23 @@ const DIFFICULTIES = {
     medium: {
         id: 'medium',
         label: 'MEDIUM',
-        blurb: 'Classic pitch flappy. One-ish bar windows.',
+        blurb: 'Classic pitch flappy. Gaps jump high and low.',
         color: 0xffe14a,
         speed: 130,
         maxSpeed: 205,
         spacing: 400,
         minSpacing: 280,
-        gapBars: 1.65,
-        minGapBars: 1.25,
+        gapBars: 1.45,
+        minGapBars: 1.18,
+        gapJitter: 0.12,
         snapSemitones: 0.45,
         follow: 0.18,
         gravity: 380,
         rampMs: 45000,
         delayMs: 12000,
-        noteMin: 1,
-        noteMax: 6,
+        noteMin: 0,
+        noteMax: 7,
+        minNoteDelta: 2,
         perfectCents: 35,
         silenceGrace: 200,
         pairCount: 7
@@ -111,14 +115,15 @@ const DIFFICULTIES = {
     hard: {
         id: 'hard',
         label: 'HARD',
-        blurb: 'Tight gaps, faster pipes, less forgiveness.',
+        blurb: 'Tight gaps, bigger leaps, less forgiveness.',
         color: 0xff8a3d,
         speed: 170,
         maxSpeed: 270,
         spacing: 340,
         minSpacing: 230,
-        gapBars: 1.2,
-        minGapBars: 1.02,
+        gapBars: 1.12,
+        minGapBars: 0.98,
+        gapJitter: 0.1,
         snapSemitones: 0.3,
         follow: 0.15,
         gravity: 480,
@@ -126,6 +131,7 @@ const DIFFICULTIES = {
         delayMs: 6000,
         noteMin: 0,
         noteMax: 7,
+        minNoteDelta: 3,
         perfectCents: 28,
         silenceGrace: 140,
         pairCount: 7
@@ -133,14 +139,15 @@ const DIFFICULTIES = {
     expert: {
         id: 'expert',
         label: 'EXPERT',
-        blurb: 'Exact notes. Tiny windows. No mercy.',
+        blurb: 'Exact notes. Huge jumps. Tiny windows.',
         color: 0xff4d4d,
         speed: 210,
         maxSpeed: 340,
         spacing: 300,
         minSpacing: 190,
-        gapBars: 0.98,
-        minGapBars: 0.88,
+        gapBars: 0.94,
+        minGapBars: 0.84,
+        gapJitter: 0.08,
         snapSemitones: 0.2,
         follow: 0.12,
         gravity: 560,
@@ -148,6 +155,7 @@ const DIFFICULTIES = {
         delayMs: 0,
         noteMin: 0,
         noteMax: 7,
+        minNoteDelta: 3,
         perfectCents: 20,
         silenceGrace: 90,
         pairCount: 8
@@ -410,8 +418,8 @@ class Bird extends Phaser.Physics.Arcade.Sprite {
         this.body.setImmovable(false);
         this.body.setVelocity(0, 0);
         const src = this.texture.getSourceImage();
-        this.body.setSize(src.width * 0.42, src.height * 0.42);
-        this.body.setOffset(src.width * 0.29, src.height * 0.29);
+        this.body.setSize(src.width * 0.5, src.height * 0.5);
+        this.body.setOffset(src.width * 0.25, src.height * 0.25);
         if (!scene.anims.exists('flap')) {
             scene.anims.create({
                 key: 'flap',
@@ -445,14 +453,25 @@ class ObstaclePair {
         this.gapLabel.setOrigin(0.5);
         this.gapLabel.setDepth(6);
 
+        this.gapBars = this.rollGapBars();
         this.configure();
+    }
+
+    rollGapBars() {
+        const scene = this.scene;
+        const base = scene.currentGapBars;
+        const jitter = scene.preset.gapJitter || 0;
+        if (!jitter) return base;
+        const scaled = base * Phaser.Math.FloatBetween(1 - jitter, 1 + jitter);
+        const floor = Math.min(base, (scene.preset.minGapBars || base) * 0.95);
+        return Phaser.Math.Clamp(scaled, floor, base * (1 + jitter));
     }
 
     configure() {
         const scene = this.scene;
         const height = scene.sys.game.config.height;
         const barHeight = scene.barHeight;
-        const gapHeight = scene.currentGapBars * barHeight;
+        const gapHeight = (this.gapBars || scene.currentGapBars) * barHeight;
         const gapCenter = (this.noteIndex + 0.5) * barHeight;
         const topH = Math.max(18, gapCenter - gapHeight / 2);
         const bottomH = Math.max(18, height - (gapCenter + gapHeight / 2));
@@ -462,14 +481,14 @@ class ObstaclePair {
         this.top.setOrigin(0.5, 0);
         this.top.setDisplaySize(Math.max(90, width * 1.8), topH);
         this.top.setPosition(this.x, 0);
-        this.top.body.setSize(cloudImg.width * 0.38, cloudImg.height * 0.72);
+        this.top.body.setSize(cloudImg.width * 0.44, cloudImg.height * 0.9);
         this.top.body.updateFromGameObject();
 
         const pipeImg = this.bottom.texture.getSourceImage();
         this.bottom.setOrigin(0.5, 1);
         this.bottom.setDisplaySize(width, bottomH);
         this.bottom.setPosition(this.x, height);
-        this.bottom.body.setSize(pipeImg.width * 0.34, pipeImg.height * 0.82);
+        this.bottom.body.setSize(pipeImg.width * 0.42, pipeImg.height * 0.92);
         this.bottom.body.updateFromGameObject();
 
         const label = scene.displayMode === 'Pitch'
@@ -493,6 +512,7 @@ class ObstaclePair {
         this.noteIndex = noteIndex;
         this.passed = false;
         this.speed = this.scene.currentObstacleSpeed;
+        this.gapBars = this.rollGapBars();
         this.setX(x);
         this.configure();
         this.top.setActive(true).setVisible(true);
@@ -727,7 +747,7 @@ class StartScreen extends Phaser.Scene {
         neonText(this, width / 2, 488, 'Hold a pitch, a key, or a color bar to fly.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
-        neonText(this, width / 2, 512, 'A–K / 1–8 = notes. Click a bar. SPACE hears the next gap.', 16)
+        neonText(this, width / 2, 512, 'Gaps jump high and low — change pitch or crash.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
 
@@ -848,6 +868,8 @@ class GameScene extends Phaser.Scene {
         this.combo = 0;
         this.bestCombo = 0;
         this.lastNoteIndex = null;
+        this.recentNotes = [];
+        this.preferTop = Math.random() > 0.5;
         this.smoothLogFreq = null;
         this.silenceMs = 0;
         this.ignoreMicUntil = 0;
@@ -937,21 +959,83 @@ class GameScene extends Phaser.Scene {
         this.pairs = [];
         const startX = this.sys.game.config.width + 280;
         for (let i = 0; i < this.preset.pairCount; i++) {
-            const note = this.pickNoteIndex();
+            const note = this.pickNoteIndex(i === 0);
             const pair = new ObstaclePair(this, startX + i * this.currentObstacleSpacing, note);
             this.pairs.push(pair);
         }
     }
 
-    pickNoteIndex() {
+    pickNoteIndex(isFirst) {
         const min = this.preset.noteMin;
         const max = this.preset.noteMax;
-        let note = Phaser.Math.Between(min, max);
-        if (note === this.lastNoteIndex && max > min) {
-            note = note === max ? min : note + 1;
+        const last = this.lastNoteIndex;
+        const minDelta = Math.max(
+            this.preset.minNoteDelta || 2,
+            Math.ceil((this.currentGapBars || this.preset.gapBars) - 0.55)
+        );
+        const mid = (min + max) / 2;
+
+        if (isFirst) {
+            const lo = Math.ceil(min + (max - min) * 0.3);
+            const hi = Math.floor(min + (max - min) * 0.7);
+            const note = Phaser.Math.Between(Math.min(lo, hi), Math.max(lo, hi));
+            this.lastNoteIndex = note;
+            this.recentNotes = [note];
+            this.preferTop = note >= mid;
+            return note;
         }
+
+        const wantTop = this.preferTop;
+        this.preferTop = !this.preferTop;
+
+        const collect = (useRecent, useDelta) => {
+            const found = [];
+            for (let n = min; n <= max; n++) {
+                if (useDelta && last != null && Math.abs(n - last) < minDelta) continue;
+                if (useRecent && this.recentNotes.indexOf(n) !== -1) continue;
+                found.push(n);
+            }
+            return found;
+        };
+
+        let candidates = collect(true, true);
+        if (!candidates.length) candidates = collect(false, true);
+        if (!candidates.length) {
+            let farthest = min;
+            let bestDist = -1;
+            for (let n = min; n <= max; n++) {
+                const dist = last == null ? 0 : Math.abs(n - last);
+                if (dist > bestDist) {
+                    bestDist = dist;
+                    farthest = n;
+                }
+            }
+            candidates = [farthest];
+        }
+
+        const side = candidates.filter(n => (wantTop ? n <= mid : n >= mid));
+        if (side.length) candidates = side;
+
+        const moving = candidates.filter(n => !this.stationaryPitchFits(last, n));
+        if (moving.length) candidates = moving;
+
+        const note = candidates[Math.floor(Math.random() * candidates.length)];
         this.lastNoteIndex = note;
+        this.recentNotes = (this.recentNotes || []).concat(note).slice(-4);
         return note;
+    }
+
+    stationaryPitchFits(prevNote, nextNote) {
+        if (prevNote == null || nextNote == null) return false;
+        const bar = this.barHeight;
+        const gap = (this.currentGapBars || this.preset.gapBars) * bar;
+        const prevCenter = (prevNote + 0.5) * bar;
+        const nextCenter = (nextNote + 0.5) * bar;
+        const half = gap / 2;
+        const birdH = 52;
+        const birdLo = prevCenter - birdH / 2;
+        const birdHi = prevCenter + birdH / 2;
+        return birdLo >= nextCenter - half + 6 && birdHi <= nextCenter + half - 6;
     }
 
     setupCollisions() {
