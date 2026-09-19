@@ -162,6 +162,55 @@ const DIFFICULTIES = {
     }
 };
 
+// noteIndex 0 = top (high Do). Steps of 2+ so a stationary bird cannot thread.
+const MELODIES = {
+    easy: [
+        [5, 2, 6, 3, 5, 1],
+        [6, 3, 1, 4, 2],
+        [2, 5, 1, 4, 6],
+        [4, 1, 5, 2, 6, 3],
+        [6, 4, 1, 5, 2]
+    ],
+    medium: [
+        [7, 5, 3, 0, 3],
+        [0, 3, 5, 7, 4],
+        [6, 2, 5, 1, 4, 0],
+        [7, 3, 6, 1, 5, 0],
+        [1, 5, 2, 6, 0, 4],
+        [7, 4, 1, 5, 2, 0]
+    ],
+    hard: [
+        [7, 3, 0, 4],
+        [0, 4, 7, 2],
+        [6, 1, 5, 0],
+        [7, 2, 6, 0, 3],
+        [1, 5, 0, 4, 7]
+    ],
+    expert: [
+        [7, 2, 0, 5],
+        [0, 4, 7, 1],
+        [6, 0, 5, 1, 7],
+        [7, 1, 6, 0],
+        [0, 5, 1, 7, 2]
+    ]
+};
+
+const INTERVAL_NAMES = ['unison', '2nd', '3rd', '4th', '5th', '6th', '7th', 'octave'];
+
+function intervalPhrase(fromIndex, toIndex) {
+    const steps = Math.abs(fromIndex - toIndex);
+    const name = INTERVAL_NAMES[steps] || (steps + ' steps');
+    if (steps === 0) return 'same note';
+    return (fromIndex > toIndex ? 'up a ' : 'down a ') + name;
+}
+
+function noteLabel(scene, index) {
+    if (index == null || index < 0) return '—';
+    return scene.displayMode === 'Pitch'
+        ? scene.pitchNames[index]
+        : SOLFEGE_HIGH_TO_LOW[index];
+}
+
 const NEON = '#39FF14';
 const TEXT_SHADOW = {
     offsetX: 1,
@@ -438,6 +487,7 @@ class ObstaclePair {
         this.x = x;
         this.noteIndex = noteIndex;
         this.passed = false;
+        this.cued = false;
         this.speed = scene.currentObstacleSpeed;
 
         this.top = scene.physics.add.image(x, 0, 'cloud');
@@ -494,8 +544,9 @@ class ObstaclePair {
         const label = scene.displayMode === 'Pitch'
             ? scene.pitchNames[this.noteIndex]
             : SOLFEGE_HIGH_TO_LOW[this.noteIndex];
+        this.gapCenterY = gapCenter;
         this.gapLabel.setText(label);
-        this.gapLabel.setPosition(this.x, gapCenter);
+        this.gapLabel.setPosition(this.x + 46, gapCenter);
         this.gapLabel.setColor('#FFFFFF');
     }
 
@@ -503,7 +554,7 @@ class ObstaclePair {
         this.x = x;
         this.top.x = x;
         this.bottom.x = x;
-        this.gapLabel.x = x;
+        this.gapLabel.x = x + 46;
         if (this.top.body) this.top.body.updateFromGameObject();
         if (this.bottom.body) this.bottom.body.updateFromGameObject();
     }
@@ -511,6 +562,7 @@ class ObstaclePair {
     reset(x, noteIndex) {
         this.noteIndex = noteIndex;
         this.passed = false;
+        this.cued = false;
         this.speed = this.scene.currentObstacleSpeed;
         this.gapBars = this.rollGapBars();
         this.setX(x);
@@ -747,7 +799,7 @@ class StartScreen extends Phaser.Scene {
         neonText(this, width / 2, 488, 'Hold a pitch, a key, or a color bar to fly.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
-        neonText(this, width / 2, 512, 'Gaps jump high and low — change pitch or crash.', 16)
+        neonText(this, width / 2, 512, 'Gaps follow little melodies. Change pitch or crash.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
 
@@ -870,6 +922,12 @@ class GameScene extends Phaser.Scene {
         this.lastNoteIndex = null;
         this.recentNotes = [];
         this.preferTop = Math.random() > 0.5;
+        this.melodyQueue = [];
+        this.lastPattern = -1;
+        this.failNeeded = null;
+        this.failSung = null;
+        this.lastSungIndex = null;
+        this.cueEnabled = loadSettings().cueEnabled !== false;
         this.smoothLogFreq = null;
         this.silenceMs = 0;
         this.ignoreMicUntil = 0;
@@ -912,6 +970,7 @@ class GameScene extends Phaser.Scene {
         this.clickNoteIndex = startNote;
 
         this.createParticles();
+        this.createAimAids();
         this.setupCollisions();
         this.createHud();
         this.initAudio();
@@ -954,6 +1013,20 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    createAimAids() {
+        this.aimLine = this.add.graphics().setDepth(9);
+        this.ghost = this.add.sprite(0, 0, 'bird1').setScale(0.26).setAlpha(0.4).setDepth(7);
+        this.ghost.setTint(0x9cff8a);
+        this.ghostRing = this.add.circle(0, 0, 18, 0xffffff, 0.16).setDepth(6);
+        this.tweens.add({
+            targets: [this.ghost, this.ghostRing],
+            alpha: { from: 0.45, to: 0.15 },
+            duration: 480,
+            yoyo: true,
+            repeat: -1
+        });
+    }
+
     createPairs() {
         this.pairs.forEach(pair => pair.destroy());
         this.pairs = [];
@@ -975,16 +1048,45 @@ class GameScene extends Phaser.Scene {
         );
         const mid = (min + max) / 2;
 
+        const accept = (n) => {
+            if (n < min || n > max) return false;
+            if (last == null) return true;
+            if (Math.abs(n - last) < minDelta) return false;
+            if (this.stationaryPitchFits(last, n)) return false;
+            return true;
+        };
+
+        const commit = (n) => {
+            this.lastNoteIndex = n;
+            this.recentNotes = (this.recentNotes || []).concat(n).slice(-4);
+            return n;
+        };
+
+        if (isFirst || !this.melodyQueue.length) this.reshuffleMelody();
+
         if (isFirst) {
-            const lo = Math.ceil(min + (max - min) * 0.3);
-            const hi = Math.floor(min + (max - min) * 0.7);
-            const note = Phaser.Math.Between(Math.min(lo, hi), Math.max(lo, hi));
-            this.lastNoteIndex = note;
-            this.recentNotes = [note];
+            let note = this.melodyQueue.find(n => n >= min && n <= max);
+            if (note == null) {
+                const lo = Math.ceil(min + (max - min) * 0.3);
+                const hi = Math.floor(min + (max - min) * 0.7);
+                note = Phaser.Math.Between(Math.min(lo, hi), Math.max(lo, hi));
+            } else {
+                this.melodyQueue.splice(this.melodyQueue.indexOf(note), 1);
+            }
             this.preferTop = note >= mid;
-            return note;
+            return commit(note);
         }
 
+        while (this.melodyQueue.length) {
+            const n = this.melodyQueue.shift();
+            if (accept(n)) {
+                if (!this.melodyQueue.length) this.reshuffleMelody();
+                this.preferTop = n >= mid;
+                return commit(n);
+            }
+        }
+
+        this.reshuffleMelody();
         const wantTop = this.preferTop;
         this.preferTop = !this.preferTop;
 
@@ -1015,14 +1117,21 @@ class GameScene extends Phaser.Scene {
 
         const side = candidates.filter(n => (wantTop ? n <= mid : n >= mid));
         if (side.length) candidates = side;
-
         const moving = candidates.filter(n => !this.stationaryPitchFits(last, n));
         if (moving.length) candidates = moving;
+        return commit(candidates[Math.floor(Math.random() * candidates.length)]);
+    }
 
-        const note = candidates[Math.floor(Math.random() * candidates.length)];
-        this.lastNoteIndex = note;
-        this.recentNotes = (this.recentNotes || []).concat(note).slice(-4);
-        return note;
+    reshuffleMelody() {
+        const pool = MELODIES[this.difficultyId] || MELODIES.medium;
+        if (!pool || !pool.length) {
+            this.melodyQueue = [];
+            return;
+        }
+        let idx = Math.floor(Math.random() * pool.length);
+        if (pool.length > 1 && idx === this.lastPattern) idx = (idx + 1) % pool.length;
+        this.lastPattern = idx;
+        this.melodyQueue = pool[idx].slice();
     }
 
     stationaryPitchFits(prevNote, nextNote) {
@@ -1047,16 +1156,18 @@ class GameScene extends Phaser.Scene {
 
     createHud() {
         const width = this.sys.game.config.width;
-        this.add.rectangle(8, 8, 158, 72, 0x000000, 0.62).setOrigin(0, 0).setDepth(119);
+        this.add.rectangle(8, 8, 158, 86, 0x000000, 0.62).setOrigin(0, 0).setDepth(119);
         this.scoreText = neonText(this, 18, 12, 'Score 0', 28).setDepth(120);
         this.bestText = neonText(this, 18, 40, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
             .setDepth(120)
             .setAlpha(0.85);
-        this.diffText = neonText(this, 18, 60, this.preset.label, 18).setDepth(120);
+        this.comboText = neonText(this, 18, 58, 'Combo 0', 16).setDepth(120).setAlpha(0.85);
+        this.diffText = neonText(this, 18, 74, this.preset.label, 16).setDepth(120);
         this.diffText.setColor(Phaser.Display.Color.IntegerToColor(this.preset.color).rgba);
 
-        this.sungText = neonText(this, width / 2, 18, 'Sing!', 30).setOrigin(0.5, 0).setDepth(120);
-        this.nextText = neonText(this, width / 2, 48, '', 18).setOrigin(0.5, 0).setDepth(120).setAlpha(0.9);
+        this.sungText = neonText(this, width / 2, 14, 'Sing!', 30).setOrigin(0.5, 0).setDepth(120);
+        this.nextText = neonText(this, width / 2, 44, '', 18).setOrigin(0.5, 0).setDepth(120).setAlpha(0.9);
+        this.intervalText = neonText(this, width / 2, 66, '', 16).setOrigin(0.5, 0).setDepth(120).setAlpha(0.8);
         this.micText = neonText(this, width / 2, this.sys.game.config.height - 22, '', 16)
             .setOrigin(0.5, 1)
             .setDepth(120)
@@ -1085,6 +1196,24 @@ class GameScene extends Phaser.Scene {
             this.modeText.setText('Mode: ' + this.displayMode);
             this.background.updateLabels(this.displayMode, this.pitchNames);
             this.pairs.forEach(pair => pair.configure());
+        });
+
+        this.pauseButton = this.add.rectangle(width - 148, 100, 84, 28, 0x222222, 1)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(120);
+        this.pauseLabel = neonText(this, width - 148, 100, 'PAUSE', 14).setOrigin(0.5).setDepth(121);
+        this.pauseButton.on('pointerdown', () => this.togglePause());
+
+        this.cueButton = this.add.rectangle(width - 52, 100, 84, 28, 0x222222, 1)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(120);
+        this.cueLabel = neonText(this, width - 52, 100, this.cueEnabled ? 'CUE ON' : 'CUE OFF', 14)
+            .setOrigin(0.5)
+            .setDepth(121);
+        this.cueButton.on('pointerdown', () => {
+            this.cueEnabled = !this.cueEnabled;
+            saveSettings({ cueEnabled: this.cueEnabled });
+            this.cueLabel.setText(this.cueEnabled ? 'CUE ON' : 'CUE OFF');
         });
     }
 
@@ -1152,6 +1281,11 @@ class GameScene extends Phaser.Scene {
             if (this.countdownDim) this.countdownDim.destroy();
             this.countdownText = null;
             this.countdownDim = null;
+            const first = this.pairs[0];
+            if (first && this.cueEnabled) {
+                this.playTone(this.vocalRangeFrequencies[first.noteIndex], 0.4, 0.14);
+                first.cued = true;
+            }
         });
     }
 
@@ -1172,10 +1306,10 @@ class GameScene extends Phaser.Scene {
             const source = this.audioContext.createMediaStreamSource(stream);
             source.connect(this.analyserNode);
             this.dataArray = new Uint8Array(this.analyserNode.fftSize);
-            this.micText.setText('Mic on  ·  click a bar, A–K / 1–8  ·  SPACE previews  ·  P pauses');
+            this.micText.setText('Mic on  ·  click a bar / A–K  ·  SPACE or CUE hears next  ·  P pauses');
         } catch (err) {
             this.registry.set('micDenied', true);
-            this.micText.setText('No mic — click a color bar or A–K / 1–8  ·  SPACE previews  ·  P pauses');
+            this.micText.setText('No mic — click a bar or A–K  ·  SPACE/CUE hears next  ·  P pauses');
         }
     }
 
@@ -1238,6 +1372,7 @@ class GameScene extends Phaser.Scene {
             this.pauseText = neonText(this, this.sys.game.config.width / 2, this.sys.game.config.height / 2, 'PAUSED', 56)
                 .setOrigin(0.5)
                 .setDepth(251);
+            if (this.pauseLabel) this.pauseLabel.setText('RESUME');
             return;
         }
         this.paused = false;
@@ -1246,6 +1381,7 @@ class GameScene extends Phaser.Scene {
         if (this.pauseText) this.pauseText.destroy();
         this.pauseOverlay = null;
         this.pauseText = null;
+        if (this.pauseLabel) this.pauseLabel.setText('PAUSE');
     }
 
     getUpcomingPair() {
@@ -1277,6 +1413,7 @@ class GameScene extends Phaser.Scene {
                 this.awardPass(pair);
             }
         });
+        this.maybeCueUpcoming();
     }
 
     updatePitchControl(delta) {
@@ -1316,8 +1453,10 @@ class GameScene extends Phaser.Scene {
                 const logp = Phaser.Math.Clamp(Math.log2(controlFreq), low, high);
                 this.targetY = ((logp - high) / (low - high)) * height;
             }
-            this.currentY += (this.targetY - this.currentY) * this.preset.follow;
+            this.currentY += (this.targetY - this.currentY) * Math.min(0.5, this.preset.follow + Math.abs(this.targetY - this.currentY) / 850);
             this.bird.y = Phaser.Math.Clamp(this.currentY, this.bird.displayHeight / 2, height - this.bird.displayHeight / 2);
+            this.bird.setAngle(Phaser.Math.Clamp((this.targetY - this.bird.y) * 0.14, -28, 28));
+            this.lastSungIndex = closest;
 
             const sung = this.displayMode === 'Pitch'
                 ? this.pitchNames[closest]
@@ -1331,20 +1470,52 @@ class GameScene extends Phaser.Scene {
             this.bird.body.setAllowGravity(false);
             this.bird.setVelocity(0, 0);
             this.currentY = this.bird.y;
+            this.bird.setAngle(Phaser.Math.Linear(this.bird.angle, 0, 0.15));
+            this.lastSungIndex = Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
         }
     }
 
     updateUpcomingHud() {
         const upcoming = this.getUpcomingPair();
         this.background.setTargetNote(upcoming ? upcoming.noteIndex : null);
+        if (this.aimLine) this.aimLine.clear();
         if (!upcoming) {
             this.nextText.setText('');
+            if (this.intervalText) this.intervalText.setText('');
+            if (this.ghost) this.ghost.setVisible(false);
+            if (this.ghostRing) this.ghostRing.setVisible(false);
             return;
         }
-        const label = this.displayMode === 'Pitch'
-            ? this.pitchNames[upcoming.noteIndex]
-            : SOLFEGE_HIGH_TO_LOW[upcoming.noteIndex];
+        const label = noteLabel(this, upcoming.noteIndex);
         this.nextText.setText('Next  ' + label);
+        const fromIdx = this.lastSungIndex != null
+            ? this.lastSungIndex
+            : Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
+        if (this.intervalText) {
+            this.intervalText.setText(intervalPhrase(fromIdx, upcoming.noteIndex));
+        }
+        const gapY = upcoming.gapCenterY || ((upcoming.noteIndex + 0.5) * this.barHeight);
+        if (this.ghost) {
+            this.ghost.setVisible(true).setPosition(upcoming.x, gapY);
+        }
+        if (this.ghostRing) {
+            this.ghostRing.setVisible(true).setPosition(upcoming.x, gapY);
+        }
+        if (this.aimLine && this.playing) {
+            this.aimLine.lineStyle(2, 0xffffff, 0.22);
+            this.aimLine.lineBetween(this.bird.x + 24, this.bird.y, upcoming.x - 18, gapY);
+        }
+    }
+
+    maybeCueUpcoming() {
+        if (!this.cueEnabled || this.isGameOver) return;
+        const upcoming = this.getUpcomingPair();
+        if (!upcoming || upcoming.cued || upcoming.passed) return;
+        if (upcoming.x < this.bird.x + 360) {
+            upcoming.cued = true;
+            this.ignoreMicUntil = this.time.now + 220;
+            this.playTone(this.vocalRangeFrequencies[upcoming.noteIndex], 0.28, 0.1);
+        }
     }
 
     updateDifficulty() {
@@ -1382,10 +1553,12 @@ class GameScene extends Phaser.Scene {
         pair.passed = true;
         this.score += 1;
         const targetFreq = this.vocalRangeFrequencies[pair.noteIndex];
-        const sungFreq = this.heldNoteIndex != null
-            ? this.vocalRangeFrequencies[this.heldNoteIndex]
-            : (this.smoothLogFreq ? Math.pow(2, this.smoothLogFreq) : 0);
-        const perfect = sungFreq > 0 && Math.abs(centsOff(sungFreq, targetFreq)) <= this.preset.perfectCents;
+        const held = this.pollHeldNoteIndex();
+        const sungIdx = held != null
+            ? held
+            : Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
+        const sungFreq = this.vocalRangeFrequencies[sungIdx];
+        const perfect = Math.abs(centsOff(sungFreq, targetFreq)) <= this.preset.perfectCents;
         if (perfect) {
             this.score += 1;
             this.perfects += 1;
@@ -1397,6 +1570,7 @@ class GameScene extends Phaser.Scene {
             this.flashPopup(this.bird.x + 40, this.bird.y - 24, '+1', '#FFFFFF');
         }
         this.scoreText.setText('Score ' + this.score);
+        if (this.comboText) this.comboText.setText('Combo ' + this.combo);
         this.playTone(targetFreq, 0.12, 0.08);
     }
 
@@ -1412,17 +1586,23 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    handleCollision() {
+    handleCollision(bird, obstacle) {
         if (this.isGameOver || !this.playing) return;
+        const pair = this.pairs.find(item => item.top === obstacle || item.bottom === obstacle);
+        this.failNeeded = pair ? pair.noteIndex : (this.getUpcomingPair() && this.getUpcomingPair().noteIndex);
+        this.failSung = Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
         this.isGameOver = true;
         this.playing = false;
-        this.pairs.forEach(pair => pair.stop());
+        this.pairs.forEach(item => item.stop());
         if (this.noteEmitter) this.noteEmitter.stop();
         this.burstEmitter.explode(40, this.bird.x, this.bird.y);
         this.cameras.main.shake(240, 0.012);
         this.bird.setVelocity(0, 0);
         this.bird.body.setAllowGravity(false);
         this.bird.anims.pause();
+        if (this.failNeeded != null) {
+            this.playTone(this.vocalRangeFrequencies[this.failNeeded], 0.45, 0.12);
+        }
         this.time.delayedCall(650, () => this.showGameOver());
     }
 
@@ -1431,25 +1611,33 @@ class GameScene extends Phaser.Scene {
         const height = this.sys.game.config.height;
         const isNewBest = saveHighScore(this.difficultyId, this.score);
         const best = loadHighScores()[this.difficultyId] || 0;
+        const needed = noteLabel(this, this.failNeeded);
+        const sung = noteLabel(this, this.failSung);
+        const miss = (this.failNeeded != null && this.failNeeded !== this.failSung)
+            ? ('Needed ' + needed + '  ·  you were on ' + sung + '  (' + intervalPhrase(this.failSung, this.failNeeded) + ')')
+            : (this.failNeeded != null ? ('Needed ' + needed) : '');
 
         this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.72).setDepth(200);
-        neonText(this, width / 2, height / 2 - 130, 'GAME OVER', 58).setOrigin(0.5).setDepth(201);
-        neonText(this, width / 2, height / 2 - 72, 'Score ' + this.score + (isNewBest ? '   NEW BEST' : ''), 32)
+        neonText(this, width / 2, height / 2 - 148, 'GAME OVER', 56).setOrigin(0.5).setDepth(201);
+        if (miss) {
+            neonText(this, width / 2, height / 2 - 96, miss, 18).setOrigin(0.5).setDepth(201).setAlpha(0.95);
+        }
+        neonText(this, width / 2, height / 2 - 58, 'Score ' + this.score + (isNewBest ? '   NEW BEST' : ''), 32)
             .setOrigin(0.5)
             .setDepth(201);
-        neonText(this, width / 2, height / 2 - 38, 'Best ' + best + '   Perfects ' + this.perfects + '   Combo ' + this.bestCombo, 20)
+        neonText(this, width / 2, height / 2 - 24, 'Best ' + best + '   Perfects ' + this.perfects + '   Combo ' + this.bestCombo, 20)
             .setOrigin(0.5)
             .setDepth(201)
             .setAlpha(0.9);
 
-        this.addMenuButton(width / 2, height / 2 + 20, 220, 54, 'TRY AGAIN', () => {
+        this.addMenuButton(width / 2, height / 2 + 28, 220, 54, 'TRY AGAIN', () => {
             this.scene.restart({
                 instrument: this.instrument,
                 difficulty: this.difficultyId,
                 selectedKeySignature: this.selectedKeySignature
             });
         });
-        this.addMenuButton(width / 2, height / 2 + 90, 260, 54, 'CHANGE SETUP', () => {
+        this.addMenuButton(width / 2, height / 2 + 98, 260, 54, 'CHANGE SETUP', () => {
             this.scene.start('StartScreen');
         });
     }
