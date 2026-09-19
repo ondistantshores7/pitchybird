@@ -350,14 +350,18 @@ class Background {
             bar.setAlpha(0.72);
             bar.setDepth(0);
             bar.setScrollFactor(0);
+            bar.setInteractive({ useHandCursor: true });
+            bar.on('pointerdown', () => {
+                this.scene.clickNoteIndex = BAR_COUNT - 1 - i;
+            });
             this.bars.push(bar);
 
-            const label = neonText(this.scene, 12, y + barHeight / 2, SOLFEGE_LOW_TO_HIGH[i], 28);
+            const label = neonText(this.scene, 16, y + barHeight / 2, SOLFEGE_LOW_TO_HIGH[i], 28);
             label.setOrigin(0, 0.5);
             label.setDepth(2);
             this.labels.push(label);
 
-            const hint = neonText(this.scene, 88, y + barHeight / 2, KEYBOARD_LOW_TO_HIGH[i], 18);
+            const hint = neonText(this.scene, 92, y + barHeight / 2, KEYBOARD_LOW_TO_HIGH[i], 18);
             hint.setOrigin(0, 0.5);
             hint.setAlpha(0.55);
             hint.setDepth(2);
@@ -402,7 +406,9 @@ class Bird extends Phaser.Physics.Arcade.Sprite {
         this.setScale(0.45);
         this.setDepth(20);
         this.setCollideWorldBounds(true);
-        this.body.setAllowGravity(true);
+        this.body.setAllowGravity(false);
+        this.body.setImmovable(false);
+        this.body.setVelocity(0, 0);
         const src = this.texture.getSourceImage();
         this.body.setSize(src.width * 0.42, src.height * 0.42);
         this.body.setOffset(src.width * 0.29, src.height * 0.29);
@@ -454,16 +460,16 @@ class ObstaclePair {
 
         const cloudImg = this.top.texture.getSourceImage();
         this.top.setOrigin(0.5, 0);
-        this.top.setDisplaySize(width * 2.2, topH);
+        this.top.setDisplaySize(Math.max(90, width * 1.8), topH);
         this.top.setPosition(this.x, 0);
-        this.top.body.setSize(cloudImg.width * 0.5, cloudImg.height * 0.82);
+        this.top.body.setSize(cloudImg.width * 0.38, cloudImg.height * 0.72);
         this.top.body.updateFromGameObject();
 
         const pipeImg = this.bottom.texture.getSourceImage();
         this.bottom.setOrigin(0.5, 1);
-        this.bottom.setDisplaySize(width * 1.05, bottomH);
+        this.bottom.setDisplaySize(width, bottomH);
         this.bottom.setPosition(this.x, height);
-        this.bottom.body.setSize(pipeImg.width * 0.5, pipeImg.height * 0.9);
+        this.bottom.body.setSize(pipeImg.width * 0.34, pipeImg.height * 0.82);
         this.bottom.body.updateFromGameObject();
 
         const label = scene.displayMode === 'Pitch'
@@ -648,6 +654,8 @@ class StartScreen extends Phaser.Scene {
         const saved = loadSettings();
 
         this.add.rectangle(0, 0, width, height, 0x050505).setOrigin(0, 0);
+        this.starting = false;
+        this.input.keyboard.removeAllListeners();
         this.selectedInstrument = saved.instrument || 'Soprano';
         this.selectedDifficulty = saved.difficulty || 'medium';
         this.registry.set('selectedInstrument', this.selectedInstrument);
@@ -716,10 +724,10 @@ class StartScreen extends Phaser.Scene {
             ease: 'Sine.easeInOut'
         });
 
-        neonText(this, width / 2, 488, 'Hold a pitch to move. Higher = up, lower = down.', 16)
+        neonText(this, width / 2, 488, 'Hold a pitch, a key, or a color bar to fly.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
-        neonText(this, width / 2, 512, 'No mic? A–K or 1–8 sing the bars. SPACE hears the next note.', 16)
+        neonText(this, width / 2, 512, 'A–K / 1–8 = notes. Click a bar. SPACE hears the next gap.', 16)
             .setOrigin(0.5)
             .setAlpha(0.75);
 
@@ -862,20 +870,26 @@ class GameScene extends Phaser.Scene {
         this.gameStartTime = this.time.now;
         this.currentY = height / 2;
         this.targetY = height / 2;
-        this.physics.world.gravity.y = this.preset.gravity;
+        this.physics.world.gravity.y = 0;
+        this.input.keyboard.removeAllListeners();
 
         this.rebuildScale();
         this.background = new Background(this);
         this.background.updateLabels(this.displayMode, this.pitchNames);
         this.background.setHintsVisible(true);
 
-        this.bird = new Bird(this, width * 0.22, height / 2);
+        this.createPairs();
+        const startNote = this.pairs[0] ? this.pairs[0].noteIndex : 3;
+        const startY = (startNote + 0.5) * this.barHeight;
+        this.bird = new Bird(this, width * 0.22, startY);
         this.bird.body.setAllowGravity(false);
-        this.currentY = this.bird.y;
+        this.bird.setVelocity(0, 0);
+        this.currentY = startY;
+        this.targetY = startY;
         this.paused = false;
+        this.clickNoteIndex = startNote;
 
         this.createParticles();
-        this.createPairs();
         this.setupCollisions();
         this.createHud();
         this.initAudio();
@@ -921,7 +935,7 @@ class GameScene extends Phaser.Scene {
     createPairs() {
         this.pairs.forEach(pair => pair.destroy());
         this.pairs = [];
-        const startX = this.sys.game.config.width + 160;
+        const startX = this.sys.game.config.width + 280;
         for (let i = 0; i < this.preset.pairCount; i++) {
             const note = this.pickNoteIndex();
             const pair = new ObstaclePair(this, startX + i * this.currentObstacleSpacing, note);
@@ -949,11 +963,12 @@ class GameScene extends Phaser.Scene {
 
     createHud() {
         const width = this.sys.game.config.width;
-        this.scoreText = neonText(this, 16, 12, 'Score 0', 28).setDepth(120);
-        this.bestText = neonText(this, 16, 40, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
+        this.add.rectangle(8, 8, 168, 78, 0x000000, 0.55).setOrigin(0, 0).setDepth(119);
+        this.scoreText = neonText(this, 18, 14, 'Score 0', 28).setDepth(120);
+        this.bestText = neonText(this, 18, 42, 'Best ' + (loadHighScores()[this.difficultyId] || 0), 18)
             .setDepth(120)
             .setAlpha(0.85);
-        this.diffText = neonText(this, 16, 62, this.preset.label, 18).setDepth(120);
+        this.diffText = neonText(this, 18, 64, this.preset.label, 18).setDepth(120);
         this.diffText.setColor(Phaser.Display.Color.IntegerToColor(this.preset.color).rgba);
 
         this.sungText = neonText(this, width / 2, 18, 'Sing!', 30).setOrigin(0.5, 0).setDepth(120);
@@ -990,33 +1005,44 @@ class GameScene extends Phaser.Scene {
     }
 
     bindInput() {
-        const noteFromKey = (key) => {
-            const digitMap = { '1': 7, '2': 6, '3': 5, '4': 4, '5': 3, '6': 2, '7': 1, '8': 0 };
-            const letterMap = { a: 7, s: 6, d: 5, f: 4, g: 3, h: 2, j: 1, k: 0 };
-            const lower = String(key).toLowerCase();
-            if (digitMap[lower] != null) return digitMap[lower];
-            if (letterMap[lower] != null) return letterMap[lower];
-            return null;
-        };
-        this.input.keyboard.on('keydown', (event) => {
-            if (event.key === ' ') {
-                this.playUpcomingNote();
-                event.preventDefault();
-                return;
-            }
-            if (String(event.key).toLowerCase() === 'p') {
-                this.togglePause();
-                return;
-            }
-            const idx = noteFromKey(event.key);
-            if (idx != null) this.heldNoteIndex = idx;
+        this.noteKeys = this.input.keyboard.addKeys('A,S,D,F,G,H,J,K,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT,UP,DOWN,SPACE,P');
+        this.input.keyboard.addCapture('SPACE');
+        this.input.keyboard.on('keydown-SPACE', (event) => {
+            this.playUpcomingNote();
+            if (event && event.preventDefault) event.preventDefault();
         });
-        this.input.keyboard.on('keyup', (event) => {
-            const idx = noteFromKey(event.key);
-            if (idx != null && idx === this.heldNoteIndex) this.heldNoteIndex = null;
-        });
+        this.input.keyboard.on('keydown-P', () => this.togglePause());
+    }
 
-        this.cursors = this.input.keyboard.addKeys({ up: 'UP', down: 'DOWN' });
+    pollHeldNoteIndex() {
+        const mapping = [
+            ['K', 'EIGHT', 0],
+            ['J', 'SEVEN', 1],
+            ['H', 'SIX', 2],
+            ['G', 'FIVE', 3],
+            ['F', 'FOUR', 4],
+            ['D', 'THREE', 5],
+            ['S', 'TWO', 6],
+            ['A', 'ONE', 7]
+        ];
+        for (let i = 0; i < mapping.length; i++) {
+            const letter = mapping[i][0];
+            const digit = mapping[i][1];
+            const idx = mapping[i][2];
+            if ((this.noteKeys[letter] && this.noteKeys[letter].isDown) ||
+                (this.noteKeys[digit] && this.noteKeys[digit].isDown)) {
+                return idx;
+            }
+        }
+        if (this.noteKeys.UP && this.noteKeys.UP.isDown) {
+            return Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5) - 1, 0, 7);
+        }
+        if (this.noteKeys.DOWN && this.noteKeys.DOWN.isDown) {
+            return Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5) + 1, 0, 7);
+        }
+        if (this.clickNoteIndex != null) return this.clickNoteIndex;
+        if (this.heldNoteIndex != null) return this.heldNoteIndex;
+        return null;
     }
 
     startCountdown() {
@@ -1057,10 +1083,10 @@ class GameScene extends Phaser.Scene {
             const source = this.audioContext.createMediaStreamSource(stream);
             source.connect(this.analyserNode);
             this.dataArray = new Uint8Array(this.analyserNode.fftSize);
-            this.micText.setText('Mic on  ·  SPACE previews the next note  ·  P pauses');
+            this.micText.setText('Mic on  ·  click a bar, A–K / 1–8  ·  SPACE previews  ·  P pauses');
         } catch (err) {
             this.registry.set('micDenied', true);
-            this.micText.setText('No mic — use A–K / 1–8  ·  SPACE previews  ·  P pauses');
+            this.micText.setText('No mic — click a color bar or A–K / 1–8  ·  SPACE previews  ·  P pauses');
         }
     }
 
@@ -1168,15 +1194,10 @@ class GameScene extends Phaser.Scene {
         const height = this.sys.game.config.height;
         let controlFreq = -1;
         let singing = false;
+        const held = this.pollHeldNoteIndex();
 
-        if (this.heldNoteIndex != null) {
-            controlFreq = this.vocalRangeFrequencies[this.heldNoteIndex];
-            singing = true;
-        } else if (this.cursors.up.isDown || this.cursors.down.isDown) {
-            const step = this.cursors.up.isDown ? -1 : 1;
-            const current = Phaser.Math.Clamp(Math.round(this.bird.y / this.barHeight - 0.5), 0, 7);
-            const next = Phaser.Math.Clamp(current + step, 0, 7);
-            controlFreq = this.vocalRangeFrequencies[next];
+        if (held != null) {
+            controlFreq = this.vocalRangeFrequencies[held];
             singing = true;
         } else if (this.time.now >= this.ignoreMicUntil && this.analyserNode && this.dataArray && this.audioContext) {
             this.analyserNode.getByteTimeDomainData(this.dataArray);
@@ -1217,14 +1238,10 @@ class GameScene extends Phaser.Scene {
             this.silenceMs += delta;
             this.smoothLogFreq = null;
             if (this.noteEmitter && this.noteEmitter.on) this.noteEmitter.stop();
-            this.sungText.setText(this.playing ? '…' : 'Sing!');
-            if (this.playing && this.silenceMs > this.preset.silenceGrace) {
-                this.bird.body.setAllowGravity(true);
-                this.currentY = this.bird.y;
-            } else {
-                this.bird.body.setAllowGravity(false);
-                this.bird.setVelocityY(0);
-            }
+            this.sungText.setText(this.playing ? 'Hold' : 'Sing!');
+            this.bird.body.setAllowGravity(false);
+            this.bird.setVelocity(0, 0);
+            this.currentY = this.bird.y;
         }
     }
 
