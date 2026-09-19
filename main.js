@@ -1015,9 +1015,9 @@ class GameScene extends Phaser.Scene {
 
     createAimAids() {
         this.aimLine = this.add.graphics().setDepth(9);
-        this.ghost = this.add.sprite(0, 0, 'bird1').setScale(0.26).setAlpha(0.4).setDepth(7);
+        this.ghost = this.add.sprite(0, 0, 'bird1').setScale(0.26).setAlpha(0.4).setDepth(7).setVisible(false);
         this.ghost.setTint(0x9cff8a);
-        this.ghostRing = this.add.circle(0, 0, 18, 0xffffff, 0.16).setDepth(6);
+        this.ghostRing = this.add.circle(0, 0, 18, 0xffffff, 0.16).setDepth(6).setVisible(false);
         this.tweens.add({
             targets: [this.ghost, this.ghostRing],
             alpha: { from: 0.45, to: 0.15 },
